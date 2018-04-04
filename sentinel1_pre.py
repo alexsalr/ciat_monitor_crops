@@ -94,19 +94,19 @@ def pre_process_s1(data_dir, out_dir, area_of_int=None, ref_raster=None, polariz
                 
                 # store immediate results
                 if write_int == True:
-                    results[pol].append(value['subset_'+pol])
-                else:
                     results[pol].append(output_name+'.dim')
                     # Write the results to files
                     if area_of_int is not None:
                         write_product(value['subset_'+pol], output_name)
                     else:
-                        write_product(value['subset_'+pol], output_name)
+                        write_product(value['terraincor_'+pol], output_name)
                     # dispose all the intermediate products
                     value['calibration_'+pol].dispose()
                     value['terraincor_'+pol].dispose()
                     value['subset_'+pol].dispose()
-            
+                else:
+                    results[pol].append(value['subset_'+pol])
+                    
             #dispose all the intermediate products
             if write_int == True:
                 value['GRD'].dispose()
