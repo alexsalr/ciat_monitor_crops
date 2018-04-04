@@ -166,8 +166,10 @@ def stacking(product_set, ref_raster = None):
     # join with reference raster, append in list
     if ref_raster is not None:
         # Read ref raster
-        ref_ras = [ProductIO.readProduct(ref_raster)]
-        prod_set = ref_ras.append(prod_set)
+        ref_ras = ProductIO.readProduct(ref_raster)
+        stack_set = []
+        stack_set = stack_set.append(ref_ras)
+        stack_set = stack_set.append(prod_set)
     
     # define the stack parameters
     params = HashMap()
@@ -180,8 +182,8 @@ def stacking(product_set, ref_raster = None):
     params.put('extent', 'Master')
     
     # create the stack
-    print("Creating stack of {} products...".format(str(len(prod_set))))
-    create_stack = GPF.createProduct('CreateStack', params, prod_set)
+    print("Creating stack of {} products...".format(str(len(stack_set))))
+    create_stack = GPF.createProduct('CreateStack', params, stack_set)
     return create_stack
 
 def mtspeckle_sigma0 (stacked_prod, pol):
