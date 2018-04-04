@@ -38,7 +38,7 @@ def unzipfiles(eo_dir, unzip_dir = None):
     else:
         unzip_direc = unzip_dir
     
-    if not os.path.exists(unzip_dir):
+    if not os.path.exists(unzip_direc):
         os.makedirs(unzip_dir)
         print unzip_dir + ' folder' + ' was created'
     
@@ -51,7 +51,7 @@ def unzipfiles(eo_dir, unzip_dir = None):
         ## Unzip only if a folder with the same name does not exist
         if not os.path.exists(unzip_direc+im_id[:-3]+'SAFE'):
             print('Unzipping ' + im_id)
-            zip_ref = zipfile.ZipFile(im_id, 'r')
+            zip_ref = zipfile.ZipFile(eo_dir+im_id, 'r')
             zip_ref.extractall(unzip_direc)
             zip_ref.close()
         else:
@@ -85,13 +85,19 @@ def sen2cor_L2A_batch (res, L1Cdir):
     L1Cdir (str): location of S1 L1C products
     """
     # Put S1 L1C directory names in list
-    L1C_files = filter(re.compile(r'^S2.....L1C').search, os.listdir(L1Cdir))
+    L1C_files = filter(re.compile(r'^S2.....L1C.*SAFE$').search, os.listdir(L1Cdir))
     print("{} L1C files found in directory".format(str(len(L1C_files))))
     
     for L1C_file in L1C_files: # Iterate over directory names
-        # Call sen2cor function for individual product
-        print("Processing {}".format(L1C_file))
-        sen2cor_L2A(res, L1Cdir+L1C_file)
+        # Check if the file exists
+        checker = r'S2._MSIL2A_' + L1C_file[11:]
+        checker_list = filter(re.compile(checker).search, os.listdir(L1Cdir))
+        if len(checker_list) == 0:
+            # Call sen2cor function for individual product
+            print("Processing {}".format(L1C_file))
+            sen2cor_L2A(res, L1Cdir+L1C_file)
+        else:
+            print("{} was already processed".format(L1C_file))
         
 ## Pre-processing of Sentinel-2 L2A products
 
