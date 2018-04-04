@@ -123,7 +123,7 @@ def pre_process_s1(data_dir, out_dir, area_of_int=None, ref_raster=None, polariz
             polprods = results[pol]
         
         # stack, apply multi-temporal speckle filter and logaritmic transform
-        stack = Sigma0_todB(mtspeckle_sigma0(stacking(polprods, ref_raster), pol))
+        stack = Sigma0_todB(mtspeckle_sigma0(stacking(polprods), pol))
         # define the name of the output
         output_name = out_direc + pol + '_stack_spk_dB'
         # write results
@@ -151,7 +151,7 @@ def getBandNames (product, sfilter = ''):
         band_names = None
     return band_names
 
-def stacking(product_set, ref_raster = None):
+def stacking(product_set):
     """
     Takes a list of SNAP products and returns a stacked product with all the bands named with
     the products acquisition dates.
@@ -162,29 +162,16 @@ def stacking(product_set, ref_raster = None):
     """
     # check if products contain any bands, discard when not
     prod_set = [product for product in product_set if not product.getNumBands() == 0]
-    
-    # join with reference raster, append in list
-    if ref_raster is not None:
-        # Read ref raster
-        ref_ras = [ProductIO.readProduct(ref_raster)]
-        stack_set = ref_ras + prod_set
-    
+        
     # define the stack parameters
     params = HashMap()
-    if ref_raster is not None:
-        params.put('resamplingType', 'NEAREST_NEIGHBOUR')
-        params.put('masterBandNames', 'B1')
-    else:
-        params.put('resamplingType', None)
+    params.put('resamplingType', None)
     params.put('initialOffsetMethod', 'Product Geolocation')
     params.put('extent', 'Master')
     
     # create the stack
-    if ref_raster is not None:
-        print("Creating stack of {} products...".format(str(len(stack_set)-1)))
-    else:
-        print("Creating stack of {} products...".format(str(len(stack_set))))
-    create_stack = GPF.createProduct('CreateStack', params, stack_set)
+    print("Creating stack of {} products...".format(str(len(prod_set))))
+    create_stack = GPF.createProduct('CreateStack', params, prod_set)
     return create_stack
 
 def mtspeckle_sigma0 (stacked_prod, pol):
