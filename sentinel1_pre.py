@@ -23,105 +23,105 @@ def pre_process_s1(data_dir, out_dir, area_of_int=None, ref_raster=None, polariz
     """
     Args:
         data_dir (str): The location of Sentinel-1 unzipped products (.SAFE dir)
-		our_dir (str): Directory for saving the results
+        our_dir (str): Directory for saving the results
         area_of_int (geojson):  A geoJSON file specifying coordinates of a
                                 regions within the Sentinel-1 images (WGS84)
-		ref_raster (str): location of a raster product with same extent and target resolution
-		polarizations ([str]): strings of polarizations to consider in processing chain
+        ref_raster (str): location of a raster product with same extent and target resolution
+        polarizations ([str]): strings of polarizations to consider in processing chain
     """
     print('Pre-processing Sentinel-1 images...')
-	
-	# Check location for saving results
-	if not out_dir.endswith('/'):
-		our_dir += '/'
-	if not os.path.exists(out_dir):
-		os.makedirs(out_dir)
-		print("New directory {} was created".format(out_dir))
-	
-	# Get a list of S1 GRD product directory names
-	prdlist = filter(re.compile(r'^S1.....GRD').search, os.listdir(data_dir))
-	
-	# Create a dictionary to read Sentinel-1 L1 GRD products
+    
+    # Check location for saving results
+    if not out_dir.endswith('/'):
+        our_dir += '/'
+    if not os.path.exists(out_dir):
+        os.makedirs(out_dir)
+        print("New directory {} was created".format(out_dir))
+    
+    # Get a list of S1 GRD product directory names
+    prdlist = filter(re.compile(r'^S1.....GRD').search, os.listdir(data_dir))
+    
+    # Create a dictionary to read Sentinel-1 L1 GRD products
     product = {}
     for element in prdlist:
         product[element[:-5]] = {}
         print(element)
     
-	# List for storing location if intermediate results
-	results = []
-	
+    # List for storing location if intermediate results
+    results = []
+    
     for key, value in product.iteritems():
-		    # Read the product
-			value['GRD'] = ProductIO.readProduct(eo_direc+key+'.SAFE/manifest.safe')
-			print('Reading '+key)
-			
-			# Apply orbit
-			param_orbit = HashMap()
-			value['orbit'] = GPF.createProduct("Apply-Orbit-File", param_orbit, value['GRD'])
-			
-			# The following operations are specific for each polarization
-			for pol in polarizations:
-				# Radiometric calibration
-				param_calibration = HashMap()
-				param_calibration.put('outputSigmaBand', True)
-				param_calibration.put('sourceBands', getBandNames(value['orbit'], 'Intensity_'+pol))
-				param_calibration.put('selectedPolarisations', pol)
-				param_calibration.put('outputImageScaleInDb', False)
-				value['calibration_'+pol] = GPF.createProduct("Calibration", param_calibration, value['orbit'])
-				
-				# Terrain correction
-				param_terraincor = HashMap()
-				param_terraincor.put('demResamplingMethod', 'NEAREST_NEIGHBOUR')
-				param_terraincor.put('imgResamplingMethod', 'NEAREST_NEIGHBOUR')
-				param_terraincor.put('applyRadiometricNormalization', True)
-				param_terraincor.put('demName', 'SRTM 3Sec')
-				param_terraincor.put('pixelSpacingInMeter', 10.0)
-				param_terraincor.put('sourceBands', getBandNames(value['calibration_'+pol], 'Sigma0_'+pol))
-				param_terraincor.put('mapProjection', 'WGS84(DD)')
-				value['terraincor_'+pol] = GPF.createProduct("Terrain-Correction", param_terraincor, value['calibration_'+pol])
-				
-				# Subset to area of interest
-				if area_of_int is not None:
-					param_subset = HashMap()
-					param_subset.put('geoRegion', geom)
-					param_subset.put('outputImageScaleInDb', False)
-					param_subset.put('sourceBandNames', getBandNames(value['terraincor_'+pol], 'Sigma0_'+pol))
-					value['subset_'+pol] = GPF.createProduct("Subset", param_subset, value['terraincor_'+pol])
-				
-				# define the name of the output
-				output_name = out_dir + pol + "_" + key
-				results.append(output_name)
-				
-				# Write the results to files
-				if area_of_int is not None:
-					write_product(value['subset_'+pol], output_name)
-				else:
-					write_product(value['subset_'+pol], output_name)
-				
-				# dispose all the intermediate products
-				value['calibration_'+pol].dispose()
-				value['terraincor_'+pol].dispose()
-				value['subset_'+pol].dispose()
-			
-			#dispose all the intermediate products
-			value['GRD'].dispose()
-			value['orbit'].dispose()
-		
-	## Make stack of polarizations, apply mt speckle filter, log trasnform and write
-	for pol in polarizations:
-		# filter results by polarization
-		pol_results = filter(re.compile(r'^'+pol+'.*dim$').search, results)
-		# declare variable to read products in list
-		polprods = []
-		# read products
-		for result in pol_results:
-			polprods.append(ProductIO.readProduct(result))
-		# stack, apply multi-temporal speckle filter and logaritmic transform
-		stack = Sigma0_todB(mtspeckle_sigma0(stacking(polprods, ref_raster), pol))
-		# define the name of the output
-		output_name = out_dir + pol + '_stack_spk_dB'
-		# write results
-		write_product(stack, output_name)
+            # Read the product
+            value['GRD'] = ProductIO.readProduct(eo_direc+key+'.SAFE/manifest.safe')
+            print('Reading '+key)
+            
+            # Apply orbit
+            param_orbit = HashMap()
+            value['orbit'] = GPF.createProduct("Apply-Orbit-File", param_orbit, value['GRD'])
+            
+            # The following operations are specific for each polarization
+            for pol in polarizations:
+                # Radiometric calibration
+                param_calibration = HashMap()
+                param_calibration.put('outputSigmaBand', True)
+                param_calibration.put('sourceBands', getBandNames(value['orbit'], 'Intensity_'+pol))
+                param_calibration.put('selectedPolarisations', pol)
+                param_calibration.put('outputImageScaleInDb', False)
+                value['calibration_'+pol] = GPF.createProduct("Calibration", param_calibration, value['orbit'])
+                
+                # Terrain correction
+                param_terraincor = HashMap()
+                param_terraincor.put('demResamplingMethod', 'NEAREST_NEIGHBOUR')
+                param_terraincor.put('imgResamplingMethod', 'NEAREST_NEIGHBOUR')
+                param_terraincor.put('applyRadiometricNormalization', True)
+                param_terraincor.put('demName', 'SRTM 3Sec')
+                param_terraincor.put('pixelSpacingInMeter', 10.0)
+                param_terraincor.put('sourceBands', getBandNames(value['calibration_'+pol], 'Sigma0_'+pol))
+                param_terraincor.put('mapProjection', 'WGS84(DD)')
+                value['terraincor_'+pol] = GPF.createProduct("Terrain-Correction", param_terraincor, value['calibration_'+pol])
+                
+                # Subset to area of interest
+                if area_of_int is not None:
+                    param_subset = HashMap()
+                    param_subset.put('geoRegion', geom)
+                    param_subset.put('outputImageScaleInDb', False)
+                    param_subset.put('sourceBandNames', getBandNames(value['terraincor_'+pol], 'Sigma0_'+pol))
+                    value['subset_'+pol] = GPF.createProduct("Subset", param_subset, value['terraincor_'+pol])
+                
+                # define the name of the output
+                output_name = out_dir + pol + "_" + key
+                results.append(output_name)
+                
+                # Write the results to files
+                if area_of_int is not None:
+                    write_product(value['subset_'+pol], output_name)
+                else:
+                    write_product(value['subset_'+pol], output_name)
+                
+                # dispose all the intermediate products
+                value['calibration_'+pol].dispose()
+                value['terraincor_'+pol].dispose()
+                value['subset_'+pol].dispose()
+            
+            #dispose all the intermediate products
+            value['GRD'].dispose()
+            value['orbit'].dispose()
+        
+    ## Make stack of polarizations, apply mt speckle filter, log trasnform and write
+    for pol in polarizations:
+        # filter results by polarization
+        pol_results = filter(re.compile(r'^'+pol+'.*dim$').search, results)
+        # declare variable to read products in list
+        polprods = []
+        # read products
+        for result in pol_results:
+            polprods.append(ProductIO.readProduct(result))
+        # stack, apply multi-temporal speckle filter and logaritmic transform
+        stack = Sigma0_todB(mtspeckle_sigma0(stacking(polprods, ref_raster), pol))
+        # define the name of the output
+        output_name = out_dir + pol + '_stack_spk_dB'
+        # write results
+        write_product(stack, output_name)
 
 def unzip_eofiles(eo_dir):
     # List all zip files in directory
@@ -166,28 +166,28 @@ def stacking(product_set, ref_raster = None):
     the products acquisition dates.
     Args:
         product_set: a list of products to be stacked
-		ref_raster (str): location of a raster product with same extent and target resolution.
+        ref_raster (str): location of a raster product with same extent and target resolution.
     Output: returns an individual product with the bands of the other products 
     """
     # check if products contain any bands, discard when not
     prod_set = [product for product in product_set if not product.getNumBands() == 0]
-	
-	# join with reference raster, append in list
-	if ref_raster is not None:
-		# Read ref raster
-		res_ras = [ProductIO.readProduct(ref_raster)]
-		prod_set = ref_ras.append(prod_set)
-	
+    
+    # join with reference raster, append in list
+    if ref_raster is not None:
+        # Read ref raster
+        res_ras = [ProductIO.readProduct(ref_raster)]
+        prod_set = ref_ras.append(prod_set)
+    
     # define the stack parameters
     params = HashMap()
-	if ref_raster is not None:
-		params.put('resamplingType', 'NEAREST_NEIGHBOUR')
-		params.put('masterBandNames', getBandNames(res_ras[0]))
-	else:
-		params.put('resamplingType', None)
+    if ref_raster is not None:
+        params.put('resamplingType', 'NEAREST_NEIGHBOUR')
+        params.put('masterBandNames', getBandNames(res_ras[0]))
+    else:
+        params.put('resamplingType', None)
     params.put('initialOffsetMethod', 'Product Geolocation')
-	params.put('extent', 'Master')
-	
+    params.put('extent', 'Master')
+    
     # create the stack
     print("Creating stack of {} products...".format(str(len(prod_set)))
     create_stack = GPF.createProduct('CreateStack', params, prod_set)
@@ -239,13 +239,13 @@ def createProgressMonitor():
     JavaSystem = jpy.get_type('java.lang.System')
     monitor = PWPM(JavaSystem.out)
     return monitor
-	
+    
 
-	
-	
-	
-	
-	
-	
-	
-	
+    
+    
+    
+    
+    
+    
+    
+    
