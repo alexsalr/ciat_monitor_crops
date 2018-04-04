@@ -173,7 +173,7 @@ def stacking(product_set, ref_raster = None):
     params = HashMap()
     if ref_raster is not None:
         params.put('resamplingType', 'NEAREST_NEIGHBOUR')
-        params.put('masterBandNames', getBandNames(ref_ras[0]))
+        params.put('masterBandNames', 'B1')
     else:
         params.put('resamplingType', None)
     params.put('initialOffsetMethod', 'Product Geolocation')
