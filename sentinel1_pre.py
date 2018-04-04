@@ -17,7 +17,7 @@ GPF.getDefaultInstance().getOperatorSpiRegistry().loadOperatorSpis()
 HashMap = snappy.jpy.get_type('java.util.HashMap')
 WKTReader = snappy.jpy.get_type('com.vividsolutions.jts.io.WKTReader')
 
-def pre_process_s1(data_dir, out_dir, area_of_int=None, ref_raster=None, polarizations=['VV','VH']):
+def pre_process_s1(data_dir, out_dir, area_of_int=None, ref_raster=None, polarizations=['VV','VH'], write_int=False):
     """
     Args:
         data_dir (str): The location of Sentinel-1 unzipped products (.SAFE dir)
@@ -30,9 +30,9 @@ def pre_process_s1(data_dir, out_dir, area_of_int=None, ref_raster=None, polariz
     print('Pre-processing Sentinel-1 images...')
     
     # Check location for saving results
-    our_direc = out_dir
+    out_direc = out_dir
     if not out_dir.endswith('/'):
-        our_direc += '/'
+        out_direc += '/'
     if not os.path.exists(out_dir):
         os.makedirs(out_dir)
         print("New directory {} was created".format(out_dir))
@@ -44,10 +44,12 @@ def pre_process_s1(data_dir, out_dir, area_of_int=None, ref_raster=None, polariz
     product = {}
     for element in prdlist:
         product[element[:-5]] = {}
-        print(element)
+        #print(element)
     
     # List for storing location if intermediate results
-    results = []
+    results = {}
+    for pol in polarizations:
+        results[pol] = []
     
     for key, value in product.iteritems():
             # Read the product
@@ -88,39 +90,48 @@ def pre_process_s1(data_dir, out_dir, area_of_int=None, ref_raster=None, polariz
                     value['subset_'+pol] = GPF.createProduct("Subset", param_subset, value['terraincor_'+pol])
                 
                 # define the name of the output
-                output_name = our_direc + pol + "_" + key
-                results.append(output_name+'.dim')
+                output_name = out_direc + pol + "_" + key
                 
-                # Write the results to files
-                if area_of_int is not None:
-                    write_product(value['subset_'+pol], output_name)
+                # store immediate results
+                if write_int == True:
+                    results[pol].append(value['subset_'+pol])
                 else:
-                    write_product(value['subset_'+pol], output_name)
-                
-                # dispose all the intermediate products
-                value['calibration_'+pol].dispose()
-                value['terraincor_'+pol].dispose()
-                value['subset_'+pol].dispose()
+                    results[pol].append(output_name+'.dim')
+                    # Write the results to files
+                    if area_of_int is not None:
+                        write_product(value['subset_'+pol], output_name)
+                    else:
+                        write_product(value['subset_'+pol], output_name)
+                    # dispose all the intermediate products
+                    value['calibration_'+pol].dispose()
+                    value['terraincor_'+pol].dispose()
+                    value['subset_'+pol].dispose()
             
             #dispose all the intermediate products
-            value['GRD'].dispose()
-            value['orbit'].dispose()
-        
+            if write_int == True:
+                value['GRD'].dispose()
+                value['orbit'].dispose()
+    
     ## Make stack of polarizations, apply mt speckle filter, log trasnform and write
     for pol in polarizations:
-        # filter results by polarization
-        pol_results = filter(re.compile(r'^'+pol+'.*dim$').search, results)
-        # declare variable to read products in list
-        polprods = []
-        # read products
-        for result in pol_results:
-            polprods.append(ProductIO.readProduct(result))
+        # retrieve int products
+        if write_int == True:
+            polprods = []
+            for result in results[pol]:
+                polprods.append(ProductIO.readProduct(result))
+        else:
+            polprods = results[pol]
+        
         # stack, apply multi-temporal speckle filter and logaritmic transform
         stack = Sigma0_todB(mtspeckle_sigma0(stacking(polprods, ref_raster), pol))
         # define the name of the output
-        output_name = our_direc + pol + '_stack_spk_dB'
+        output_name = out_direc + pol + '_stack_spk_dB'
         # write results
         write_product(stack, output_name)
+        
+    # clean memory
+    product = None
+    results = None
 
 def getBandNames (product, sfilter = ''):
     """
