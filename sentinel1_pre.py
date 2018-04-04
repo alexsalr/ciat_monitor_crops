@@ -38,7 +38,7 @@ def pre_process_s1(data_dir, out_dir, area_of_int=None, ref_raster=None, polariz
         print("New directory {} was created".format(out_dir))
     
     # Get a list of S1 GRD product directory names
-    prdlist = filter(re.compile(r'^S1.....GRD').search, os.listdir(data_dir))
+    prdlist = filter(re.compile(r'^S1.....GRD.*SAFE$').search, os.listdir(data_dir))
     
     # Create a dictionary to read Sentinel-1 L1 GRD products
     product = {}
@@ -89,7 +89,7 @@ def pre_process_s1(data_dir, out_dir, area_of_int=None, ref_raster=None, polariz
                 
                 # define the name of the output
                 output_name = our_direc + pol + "_" + key
-                results.append(output_name)
+                results.append(output_name+'.dim')
                 
                 # Write the results to files
                 if area_of_int is not None:
