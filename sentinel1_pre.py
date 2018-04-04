@@ -9,9 +9,7 @@ crop_monitoring_project using ESA SNAP api tools.
 """
 
 # Import packages
-import zipfile
-
-import snappy, shutil, os, ast, re
+import snappy, os, re
 from sentinelsat.sentinel import read_geojson, geojson_to_wkt
 from snappy import ProductIO, HashMap, GPF, jpy
 
@@ -32,8 +30,9 @@ def pre_process_s1(data_dir, out_dir, area_of_int=None, ref_raster=None, polariz
     print('Pre-processing Sentinel-1 images...')
     
     # Check location for saving results
+    our_direc = out_dir
     if not out_dir.endswith('/'):
-        our_dir += '/'
+        our_direc += '/'
     if not os.path.exists(out_dir):
         os.makedirs(out_dir)
         print("New directory {} was created".format(out_dir))
@@ -52,7 +51,7 @@ def pre_process_s1(data_dir, out_dir, area_of_int=None, ref_raster=None, polariz
     
     for key, value in product.iteritems():
             # Read the product
-            value['GRD'] = ProductIO.readProduct(eo_direc+key+'.SAFE/manifest.safe')
+            value['GRD'] = ProductIO.readProduct(data_dir+key+'.SAFE/manifest.safe')
             print('Reading '+key)
             
             # Apply orbit
@@ -83,13 +82,13 @@ def pre_process_s1(data_dir, out_dir, area_of_int=None, ref_raster=None, polariz
                 # Subset to area of interest
                 if area_of_int is not None:
                     param_subset = HashMap()
-                    param_subset.put('geoRegion', geom)
+                    param_subset.put('geoRegion', area_of_int)
                     param_subset.put('outputImageScaleInDb', False)
                     param_subset.put('sourceBandNames', getBandNames(value['terraincor_'+pol], 'Sigma0_'+pol))
                     value['subset_'+pol] = GPF.createProduct("Subset", param_subset, value['terraincor_'+pol])
                 
                 # define the name of the output
-                output_name = out_dir + pol + "_" + key
+                output_name = our_direc + pol + "_" + key
                 results.append(output_name)
                 
                 # Write the results to files
@@ -119,28 +118,9 @@ def pre_process_s1(data_dir, out_dir, area_of_int=None, ref_raster=None, polariz
         # stack, apply multi-temporal speckle filter and logaritmic transform
         stack = Sigma0_todB(mtspeckle_sigma0(stacking(polprods, ref_raster), pol))
         # define the name of the output
-        output_name = out_dir + pol + '_stack_spk_dB'
+        output_name = our_direc + pol + '_stack_spk_dB'
         # write results
         write_product(stack, output_name)
-
-def unzip_eofiles(eo_dir):
-    # List all zip files in directory
-    eo_files = filter(re.compile('zip$').search, os.listdir(eo_dir))
-    
-    # Check if a data folder exist
-    if not os.path.exists(unzip_dir):
-        os.makedirs(unzip_dir)
-        print 'data folder' + ' was created'
-    
-    ## Loop over list of zip files
-    for im_id in eo_files:
-        if not os.path.exists(eo_dir+im_id[:-3]+'SAFE'):
-            print('Unzipping ' + im_id)
-        zip_ref = zipfile.ZipFile(im_id, 'r')
-        zip_ref.extractall('data')
-        zip_ref.close()
-    else:
-        print(im_id[:-4] + ' was already uncompressed')
 
 def getBandNames (product, sfilter = ''):
     """
@@ -175,21 +155,21 @@ def stacking(product_set, ref_raster = None):
     # join with reference raster, append in list
     if ref_raster is not None:
         # Read ref raster
-        res_ras = [ProductIO.readProduct(ref_raster)]
+        ref_ras = [ProductIO.readProduct(ref_raster)]
         prod_set = ref_ras.append(prod_set)
     
     # define the stack parameters
     params = HashMap()
     if ref_raster is not None:
         params.put('resamplingType', 'NEAREST_NEIGHBOUR')
-        params.put('masterBandNames', getBandNames(res_ras[0]))
+        params.put('masterBandNames', getBandNames(ref_ras[0]))
     else:
         params.put('resamplingType', None)
     params.put('initialOffsetMethod', 'Product Geolocation')
     params.put('extent', 'Master')
     
     # create the stack
-    print("Creating stack of {} products...".format(str(len(prod_set)))
+    print("Creating stack of {} products...".format(str(len(prod_set))))
     create_stack = GPF.createProduct('CreateStack', params, prod_set)
     return create_stack
 
