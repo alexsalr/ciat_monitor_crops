@@ -168,8 +168,8 @@ def stacking(product_set, ref_raster = None):
         # Read ref raster
         ref_ras = ProductIO.readProduct(ref_raster)
         stack_set = []
-        stack_set = stack_set.append(ref_ras)
-        stack_set = stack_set.append(prod_set)
+        stack_set.append(ref_ras)
+        stack_set.append(prod_set)
     
     # define the stack parameters
     params = HashMap()
