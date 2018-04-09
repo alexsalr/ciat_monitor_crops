@@ -1,4 +1,4 @@
-import os, re, zipfile, snappy
+import os, re, zipfile, snappy, parmap
 from sentinelsat.sentinel import SentinelAPI, read_geojson, geojson_to_wkt
 from snappy import ProductIO
 from snappy import HashMap
@@ -68,7 +68,7 @@ def sen2cor_L2A (res, prod):
     prod (str): location of S1 L1C product
     """
     # Hard-code location of sen2cor installation
-    os.chdir("/home/azalazar/sen2cor/Sen2Cor-02.05.05-Linux64/bin")
+    os.chdir("/home/azalazar/DL_Temp/Sen2Cor-02.05.05-Linux64/bin/")
     # Coerce resolution to string
     res = str(res)
     # Execute L2A_Process with resolution parameter when specified
@@ -87,18 +87,21 @@ def sen2cor_L2A_batch (res, L1Cdir):
     # Put S1 L1C directory names in list
     L1C_files = filter(re.compile(r'^S2.....L1C.*SAFE$').search, os.listdir(L1Cdir))
     print("{} L1C files found in directory".format(str(len(L1C_files))))
-    
+    l1cList = []
     for L1C_file in L1C_files: # Iterate over directory names
         # Check if the file exists
         checker = r'S2._MSIL2A_' + L1C_file[11:]
         checker_list = filter(re.compile(checker).search, os.listdir(L1Cdir))
         if len(checker_list) == 0:
             # Call sen2cor function for individual product
-            print("Processing {}".format(L1C_file))
-            sen2cor_L2A(res, L1Cdir+L1C_file)
+            print("{} is set for processing".format(L1C_file))
+            #sen2cor_L2A(res, L1Cdir+L1C_file)
+            l1cList.append((res, L1Cdir+L1C_file))
         else:
-            print("{} was already processed".format(L1C_file))
-        
+            print("{} was already processed, removing from list".format(L1C_file))
+            
+    parmap.starmap(sen2cor_L2A, l1cList)
+    
 ## Pre-processing of Sentinel-2 L2A products
 
 def pre_process_s2(data_dir, out_dir, area_of_int):
@@ -108,31 +111,35 @@ def pre_process_s2(data_dir, out_dir, area_of_int):
     area_of_int (geoJSON): extent of region of interest
     
     """
+    
+    #/home/azalazar/data/
+    os.chdir(data_dir)
+    
     # Check location for saving results
     out_direc = out_dir
-    if not out_dir.endswith('/'):
+    if not out_direc.endswith('/'):
         out_direc += '/'
-    if not os.path.exists(out_dir):
-        os.makedirs(out_dir)
-        print("New directory {} was created".format(out_dir))
+    if not os.path.exists(out_direc):
+        os.makedirs(out_direc)
+        print("New directory {} was created".format(out_direc))
     
-    # Get a list of S1 GRD product directory names
-    prdlist = filter(re.compile(r'^S1.....L1C.*SAFE$').search, os.listdir(data_dir))
+    # Get a list of S2 L2A product directory names
+    prdlist = filter(re.compile(r'^S2.....L2A.*SAFE$').search, os.listdir(data_dir))
     
-    # Create a dictionary to read Sentinel-1 L1 GRD products
+    # Create a dictionary to read Sentinel-2 L2A products
     product = {}
     for element in prdlist:
         product[element[:-5]] = {}
-        print(element)
+        #print(element)
     
-    for key, value in product.iteritems():    
+    for key, value in product.iteritems():
         # Read the product
         print('Reading {}'.format(key+'.SAFE/MTD_MSIL2A.xml'))
         value['GRD'] = ProductIO.readProduct(key+'.SAFE/MTD_MSIL2A.xml')
         
         # Resample all bands to 10m resolution
         resample_subset = HashMap()
-        #resample_subset.put('targetResolution', 10)
+        resample_subset.put('targetResolution', 10)
         print('Resampling {}'.format(key))
         value['res10'] = GPF.createProduct('Resample', resample_subset, value['GRD'])
         
