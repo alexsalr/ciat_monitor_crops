@@ -3,7 +3,7 @@ from sentinel2_pre import *
 
 if __name__ == '__main__':
     
-    data_dir = '/home/azalazar/data'
+    data_dir = '/home/azalazar/data/'
     out_dir = '/home/azalazar/data/pre/'
     area_of_int = '/home/azalazar/data/spatial_ref/ibagueextent.geojson'
         
