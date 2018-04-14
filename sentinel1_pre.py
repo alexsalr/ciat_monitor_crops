@@ -84,7 +84,7 @@ def pre_process_s1(data_dir, out_dir, area_of_int=None, ref_raster=None, polariz
                 # Subset to area of interest
                 if area_of_int is not None:
                     param_subset = HashMap()
-                    param_subset.put('geoRegion', area_of_int)
+                    param_subset.put('geoRegion', geojson_to_wkt(read_geojson(area_of_int)))
                     param_subset.put('outputImageScaleInDb', False)
                     param_subset.put('sourceBandNames', getBandNames(value['terraincor_'+pol], 'Sigma0_'+pol))
                     value['subset_'+pol] = GPF.createProduct("Subset", param_subset, value['terraincor_'+pol])
@@ -123,7 +123,8 @@ def pre_process_s1(data_dir, out_dir, area_of_int=None, ref_raster=None, polariz
             polprods = results[pol]
         
         # stack, apply multi-temporal speckle filter and logaritmic transform
-        stack = Sigma0_todB(mtspeckle_sigma0(stacking(polprods), pol))
+        stack = Sigma0_todB(mtspeckle_sigma0(stacking(polprods, ref_raster), pol))
+        
         # define the name of the output
         output_name = out_direc + pol + '_stack_spk_dB'
         # write results
@@ -151,7 +152,7 @@ def getBandNames (product, sfilter = ''):
         band_names = None
     return band_names
 
-def stacking(product_set):
+def stacking(product_set, refproduct = None):
     """
     Takes a list of SNAP products and returns a stacked product with all the bands named with
     the products acquisition dates.
@@ -161,11 +162,17 @@ def stacking(product_set):
     Output: returns an individual product with the bands of the other products 
     """
     # check if products contain any bands, discard when not
-    prod_set = [product for product in product_set if not product.getNumBands() == 0]
-        
+    
+    if refproduct is not None:
+        prod_set = [ProductIO.readProduct(refproduct)] + [product for product in product_set if not product.getNumBands() == 0]
+    else:
+        prod_set = [product for product in product_set if not product.getNumBands() == 0]
+            
     # define the stack parameters
     params = HashMap()
-    params.put('resamplingType', None)
+    #if refproduct is not None:
+    #    params.put('masterBandNames', getBandNames(ProductIO.readProduct(refproduct)))
+    params.put('resamplingType', 'NEAREST_NEIGHBOUR')
     params.put('initialOffsetMethod', 'Product Geolocation')
     params.put('extent', 'Master')
     

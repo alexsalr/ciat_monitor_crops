@@ -1,4 +1,4 @@
-import os, re, zipfile, snappy, parmap
+import os, re, zipfile, snappy, parmap, sys
 from sentinelsat.sentinel import SentinelAPI, read_geojson, geojson_to_wkt
 from snappy import ProductIO
 from snappy import HashMap
@@ -133,31 +133,36 @@ def pre_process_s2(data_dir, out_dir, area_of_int):
         #print(element)
     
     for key, value in product.iteritems():
-        # Read the product
-        print('Reading {}'.format(key+'.SAFE/MTD_MSIL2A.xml'))
-        value['GRD'] = ProductIO.readProduct(key+'.SAFE/MTD_MSIL2A.xml')
+        try:
+            # Read the product
+            print('Reading {}'.format(key+'.SAFE/MTD_MSIL2A.xml'))
+            value['GRD'] = ProductIO.readProduct(key+'.SAFE/MTD_MSIL2A.xml')
         
-        # Resample all bands to 10m resolution
-        resample_subset = HashMap()
-        resample_subset.put('targetResolution', 10)
-        print('Resampling {}'.format(key))
-        value['res10'] = GPF.createProduct('Resample', resample_subset, value['GRD'])
+            # Resample all bands to 10m resolution
+            resample_subset = HashMap()
+            resample_subset.put('targetResolution', 10)
+            print('Resampling {}'.format(key))
+            value['res10'] = GPF.createProduct('Resample', resample_subset, value['GRD'])
         
-        # Subset to area of interest
-        param_subset = HashMap()
-        param_subset.put('geoRegion', geojson_to_wkt(read_geojson(area_of_int)))
-        param_subset.put('outputImageScaleInDb', False)
-        param_subset.put('sourceBandNames', 'B2, B3, B4, B8, B11, B12,\
-        quality_cloud_confidence,quality_scene_classification')
-        print('Subsetting {}'.format(key))
-        value['sub'] = GPF.createProduct("Subset", param_subset, value['res10'])
+            # Subset to area of interest
+            param_subset = HashMap()
+            param_subset.put('geoRegion', geojson_to_wkt(read_geojson(area_of_int)))
+            param_subset.put('outputImageScaleInDb', False)
+            param_subset.put('sourceBandNames', 'B2, B3, B4, B8, B11, B12,\
+            quality_cloud_confidence,quality_scene_classification')
+            print('Subsetting {}'.format(key))
+            value['sub'] = GPF.createProduct("Subset", param_subset, value['res10'])
         
-        # Write product
-        print('Writing {} subset resampled to 10m'.format(key))
-        ProductIO.writeProduct(value['sub'], key+'_subset', 'BEAM-DIMAP')
+            # Write product
+            print('Writing {} subset resampled to 10m'.format(key))
+            ProductIO.writeProduct(value['sub'], key+'_subset', 'BEAM-DIMAP')
         
-        # Dispose all the intermediate products
-        value['GRD'].dispose()
-        value['res10'].dispose()
-        value['sub'].dispose()
+            # Dispose all the intermediate products
+            value['GRD'].dispose()
+            value['res10'].dispose()
+            value['sub'].dispose()
+            
+        except:
+            e = sys.exc_info()
+            print("{} could not be processed: {} {} {}".format(key, e[0], e[1], e[2]))
  
