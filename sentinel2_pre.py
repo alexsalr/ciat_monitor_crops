@@ -68,7 +68,7 @@ def sen2cor_L2A (res, prod):
     prod (str): location of S1 L1C product
     """
     # Hard-code location of sen2cor installation
-    os.chdir("/home/azalazar/DL_Temp/Sen2Cor-02.05.05-Linux64/bin/")
+    os.chdir("/home/azalazar/sen2cor/Sen2Cor-02.05.05-Linux64/bin/")
     # Coerce resolution to string
     res = str(res)
     # Execute L2A_Process with resolution parameter when specified
@@ -136,7 +136,7 @@ def pre_process_s2(data_dir, out_dir, area_of_int):
         try:
             # Read the product
             print('Reading {}'.format(key+'.SAFE/MTD_MSIL2A.xml'))
-            value['GRD'] = ProductIO.readProduct(key+'.SAFE/MTD_MSIL2A.xml')
+            value['GRD'] = ProductIO.readProduct(data_dir+key+'.SAFE/MTD_MSIL2A.xml')
         
             # Resample all bands to 10m resolution
             resample_subset = HashMap()
@@ -148,14 +148,13 @@ def pre_process_s2(data_dir, out_dir, area_of_int):
             param_subset = HashMap()
             param_subset.put('geoRegion', geojson_to_wkt(read_geojson(area_of_int)))
             param_subset.put('outputImageScaleInDb', False)
-            param_subset.put('sourceBandNames', 'B2, B3, B4, B8, B11, B12,\
-            quality_cloud_confidence,quality_scene_classification')
+            param_subset.put('bandNames', 'B2,B3,B4,B8,B11,B12,quality_cloud_confidence,quality_scene_classification')
             print('Subsetting {}'.format(key))
             value['sub'] = GPF.createProduct("Subset", param_subset, value['res10'])
         
             # Write product
             print('Writing {} subset resampled to 10m'.format(key))
-            ProductIO.writeProduct(value['sub'], key+'_subset', 'BEAM-DIMAP')
+            ProductIO.writeProduct(value['sub'], out_dir+key, 'BEAM-DIMAP')
         
             # Dispose all the intermediate products
             value['GRD'].dispose()
