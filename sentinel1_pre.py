@@ -123,10 +123,18 @@ def pre_process_s1(data_dir, out_dir, area_of_int=None, ref_raster=None, polariz
             polprods = results[pol]
         
         # stack, apply multi-temporal speckle filter and logaritmic transform
-        stack = Sigma0_todB(mtspeckle_sigma0(stacking(polprods, ref_raster), pol))
+        stack = Sigma0_todB(mtspeckle_sigma0(stacking(polprods), pol))
+        
+        # 
+        if ref_raster is not None:
+            cparams = HashMap()
+            sourceProducts = HashMap()
+            sourceProducts.put("master", ProductIO.readProduct(ref_raster))
+            sourceProducts.put("slave", stack)
+            stack = GPF.createProduct('Collocate', cparams, sourceProducts)
         
         # define the name of the output
-        output_name = out_direc + pol + '_stack_spk_dB'
+        output_name = out_direc + 'S1_' + pol + '_spk_dB'
         # write results
         write_product(stack, output_name)
         
@@ -152,7 +160,7 @@ def getBandNames (product, sfilter = ''):
         band_names = None
     return band_names
 
-def stacking(product_set, refproduct = None):
+def stacking(product_set):
     """
     Takes a list of SNAP products and returns a stacked product with all the bands named with
     the products acquisition dates.
@@ -162,16 +170,10 @@ def stacking(product_set, refproduct = None):
     Output: returns an individual product with the bands of the other products 
     """
     # check if products contain any bands, discard when not
-    
-    if refproduct is not None:
-        prod_set = [ProductIO.readProduct(refproduct)] + [product for product in product_set if not product.getNumBands() == 0]
-    else:
-        prod_set = [product for product in product_set if not product.getNumBands() == 0]
+    prod_set = [product for product in product_set if not product.getNumBands() == 0]
             
     # define the stack parameters
     params = HashMap()
-    #if refproduct is not None:
-    #    params.put('masterBandNames', getBandNames(ProductIO.readProduct(refproduct)))
     params.put('resamplingType', 'NEAREST_NEIGHBOUR')
     params.put('initialOffsetMethod', 'Product Geolocation')
     params.put('extent', 'Master')
