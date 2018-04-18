@@ -7,6 +7,9 @@ Created on Tue Apr 17 15:32:31 2018
 
 import rasterio, os, re, datetime
 import numpy as np
+import pandas as pd
+import xarray as xr
+
 #from rasterio.rio import stack
 
 class eoTempStack:
@@ -35,13 +38,13 @@ class eoTempStack:
         self.bands_temporal_range = {} #Declare dictionary. Set in setTempData
         self.stack_location = {} #Declare dictionary. Set in setStackLoc
         
-        print('{} empty object initialized from {}'.format(self.prod_type, self.source_directory))
-        
         # Set the minimum required variables to construct the object. Implementation varies by product (subclass).
         self.setOrigBandsLoc()
         self.setStackLoc()
         self.setTempData()
         self.buildAllStack()
+        
+        print('{} object initialized from {}'.format(self.prod_type, self.source_directory))
         
     def getOrigBandsLoc(self, key=None):
         if key is not None:
@@ -79,13 +82,17 @@ class eoTempStack:
     def getSourceDir(self):
         return self.source_directory
     
-    def setStackLoc(self):
-        # Declare a dictionary to store stack location by key
-        stackLoc = {}
-        for key in self.getOrigBandsLoc():
-            stackLoc[key] = self.out_directory + '/' + key + '.tif'
-        # Store dictionary as instance variable
-        self.stack_location = stackLoc
+    def setStackLoc(self, key=None, location=None):
+        # Method overload to support adding new stack locations
+        if key is not None and location is not None:
+            self.stack_location[key] = location
+        else:
+            # Declare a dictionary to store stack location by key
+            stackLoc = {}
+            for key in self.getOrigBandsLoc():
+                stackLoc[key] = self.out_directory + key + '.tif'
+            # Store dictionary as instance variable
+            self.stack_location = stackLoc
     
     def getStackLoc(self, key=None):
         if key is not None:
@@ -104,7 +111,7 @@ class eoTempStack:
         return band
     
     def getTags(self, key, index=None, date=None):
-        with rasterio.open(self.stack_location) as src:
+        with rasterio.open(self.getStackLoc(key)) as src:
             if date is not None:
                 tags = src.tags(self.getBandIndex(date)+1)
             elif index is not None:
@@ -120,7 +127,13 @@ class eoTempStack:
         for id, layer in enumerate(self.getTempData().itervalues().next()):
             if date == layer:
                 return id
-        
+    
+    def buildXArray(prod, band):
+        time = xr.Variable('time', pd.DatetimeIndex([pd.Timestamp(f) for f in prod.getTempData(band)]))
+        arlist = [xr.open_rasterio(f) for f in prod.getOrigBandsLoc(band)]
+        da = xr.concat(arlist, dim=time)
+        return da
+    
 class S1TempStack(eoTempStack):
                 
     def setOrigBandsLoc(self):
@@ -136,21 +149,27 @@ class S1TempStack(eoTempStack):
         # Store the dictionary of files location as instance variable
         self.bands_orig_files = prodlist
         
-    def setTempData(self):
-        ## Declare dictionary to store dates by polarization
-        temp_range = {}
-        for key, value in self.getOrigBandsLoc().iteritems():
-            temp_range[key] = list(map(lambda x: datetime.datetime.strptime(x.split('/')[-1].split('_')[3], '%d%b%Y').date(),
-                                                 value))
-        # Store dictionary as instance variable
-        self.bands_temporal_range = temp_range
+    def setTempData(self, key=None, tempdata=None):
+        if key is not None and tempdata is not None:
+            self.bands_temporal_range[key] = tempdata
+        else:
+            ## Declare dictionary to store dates by polarization
+            temp_range = {}
+            for key, value in self.getOrigBandsLoc().iteritems():
+                temp_range[key] = list(map(lambda x: datetime.datetime.strptime(x.split('/')[-1].split('_')[3],
+                                                                                '%d%b%Y').date(), value))
+                # Store dictionary as instance variable
+            self.bands_temporal_range = temp_range
 
         
 class S2TempStack(eoTempStack):
     cloud_quality_limit = 9
     bands_of_interest = ['B2', 'B3', 'B4', 'B8', 'B11', 'B12', 'quality_cloud_confidence',
                          'quality_scene_classification']
+    std_names = ['blue','green','red','vrededg1','vrededg2','vrededg3','nir','narrownir','swir1','swir2',
+                 'CloudQA1','CloudQA2']
     calculated_bands = ['NDVI', 'NDWI']
+         
     
     def setOrigBandsLoc(self):
         ## Get names of files to stack in raster
@@ -162,22 +181,24 @@ class S2TempStack(eoTempStack):
             prodloclist[band] = list(map(lambda x: self.getSourceDir()+x+'/'+band+'.img', prodlist))
         
         self.bands_orig_files = prodloclist
-            
-    def setTempData(self):
-        temp_range = {}
-        for key, value in self.getOrigBandsLoc().iteritems():
-            temp_range[key] = list(map(lambda x: datetime.datetime.strptime(x.split('/')[-2][11:19], '%Y%m%d').date(),
-                                                 value))
-        self.bands_temporal_range = temp_range
         
-    def calcCloudQuality(self):
-        """"Recieves a rasterio read product.. what is the name?"""
+    def setTempData(self, key=None, tempdata=None):
+        if key is not None and tempdata is not None:
+            self.bands_temporal_range[key] = tempdata
+        else:
+            temp_range = {}
+            for key, value in self.getOrigBandsLoc().iteritems():
+                temp_range[key] = list(map(lambda x: datetime.datetime.strptime(x.split('/')[-2][11:19], 
+                                                                                '%Y%m%d').date(),value))
+            self.bands_temporal_range = temp_range
+        
+    def calcCloudCover(self):
         cloudcover = []
         for date in self.getTempData('quality_cloud_confidence'):
-            quality_band = self.getBand('quality_cloud_confidence')
+            quality_band = self.getBand('quality_cloud_confidence', date=date)
             cloudpixelsmask = quality_band > self.cloud_quality_limit
-            cloudcover.append(1 - float(np.sum(cloudpixelsmask)) / float(cloudpixelsmask.size))
-        self.cloud_cover = cloudcover
+            cloudcover.append(float(np.sum(cloudpixelsmask)) / float(cloudpixelsmask.size))
+        return cloudcover
         
     def calcBand(self, band):
         # We handle the connections with "with"
@@ -188,25 +209,38 @@ class S2TempStack(eoTempStack):
         calc_band = []
         
         if band == 'NDVI':
-            for date in self.getTempData('B3'):
-                b3 = self.getBand('B3', date=date)
-                b4 = self.getBand('B4', date=date)
+            for date in self.getTempData('B8'):
+                nir = self.getBand('B8', date=date)
+                red = self.getBand('B4', date=date)
                 # Allow division by zero
                 np.seterr(divide='ignore', invalid='ignore')
                 # Calculate NDVI
-                calc_band.append((b4.astype(float) - b3.astype(float)) / (b4 + b3))
+                calc_band.append((nir.astype(float) - red.astype(float)) / (nir + red))
             # Define spatial characteristics of output object (basically they are analog to the input)
-            with rasterio.open(self.getBand('B3', index=0)) as src:
+            with rasterio.open(self.getStackLoc('B8')) as src:
                 kwargs = src.meta
             # Update kwargs (change in data type)
             kwargs.update(dtype=rasterio.float32)
             # Write raster stack of results
-            with rasterio.open(self.out_directory + '/' + band + '.tif', 'w', **kwargs) as dst:
+            stackLocation = self.out_directory + band + '.tif'
+            with rasterio.open(stackLocation, 'w', **kwargs) as dst:
                 for id, layer in enumerate(calc_band):
                         # band numbering in rasterio goes from 1
                         dst.write_band(id+1, layer.astype(rasterio.float32))
                         # update metadata with date of image and band name
-                        dst.update_tags(id+1, image_date=self.getTempData('B3')[id])
+                        dst.update_tags(id+1, image_date=self.getTempData('B8')[id])
                         dst.update_tags(id+1, band_name=band)
+                        # add band to object variables
+                        #stackLocation = self.out_directory + '/' + band + '.tif'
+            # Update object variables
+            self.setStackLoc(band, stackLocation)
+            self.setTempData(band, self.getTempData('B8'))
+    
+    def getMaskedBand(self, key, index=None, date=None):
+        if index is not None or date is not None:
+            rmask = self.getBand('quality_cloud_confidence', index=index, date=date) > self.cloud_quality_limit
+            return np.ma.masked_array(self.getBand(key, index=index, date=date), mask=rmask)
+        else:
+            raise NotImplementedError('Not Implemented. Please specify date or index.')
             
-        
+    
