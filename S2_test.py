@@ -1,6 +1,7 @@
 
 from sentinel2_pre import *
 from sentinel_dndl import *
+from landsat_pre import *
 
 if __name__ == '__main__':
     
@@ -20,3 +21,6 @@ if __name__ == '__main__':
     
     #
     #pre_process_s2(data_dir, out_dir, area_of_int)
+    
+    # Landsat pre
+    #pre_landsat_batch('/home/azalazar/data/Ibague/Landsat/', '/home/azalazar/data/spatial_ref/ibague.data/ref.img')
