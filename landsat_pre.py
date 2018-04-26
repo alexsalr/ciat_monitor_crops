@@ -1,38 +1,20 @@
-import tarfile, os, re
+import os, re, parmap
 
-def untarfiles(eo_dir, unzip_dir = None):
-    """
-    Unzips every zipfile in the path, and stores in directory with zipfile name+.SAFE
-    Args:
-        eo_dir (string): string of directory where zipfiles are located
-        unzip_dir (string): directory where files are to be unzipped, default relative path
-                            uz_data in working directory
-    """
-    # List all zip files in directory
-    eo_files = filter(re.compile('tar.gz$').search, os.listdir(eo_dir))
+
+def pre_landsat_batch(data_dir, ref_raster):
+
+    # Get a list of S2 L2A product directory names
+    landsat_products = filter(re.compile(r'^L.*[0-9]$').search, os.listdir(data_dir))
     
-    # Check if a data folder exist
-    if unzip_dir is None:
-        unzip_direc = eo_dir
-    else:
-        unzip_direc = unzip_dir
+    for key in landsat_products:
+        
+        ldir = filter(re.compile('tif$').search, os.listdir(data_dir+key))
+        
+        bands = list(map(lambda x: (data_dir+key+'/'+x, data_dir+key+'/ref_'+x.split('_')[-2]+x.split('_')[-1], ref_raster), ldir))
+                
+        parmap.starmap(pre_process_landsat, bands)
+        
+def pre_process_landsat(orig_tif, dest_tif, ref_raster):
     
-    if not os.path.exists(unzip_direc):
-        os.makedirs(unzip_dir)
-        print unzip_dir + ' folder' + ' was created'
-    
-    # Make sure unzip direction ends with slash
-    if unzip_direc[-1] != '/':
-        unzip_dir = unzip_direc + '/'
-    
-    ## Loop over list of zip files
-    for im_id in eo_files:
-        ## Unzip only if a folder with the same name does not exist
-        if not os.path.exists(unzip_direc+im_id[:-7]):
-            print('Uncompressing ' + im_id)
-            tar = tarfile.open(eo_dir+im_id, 'r')
-            tar.extractall(unzip_direc+im_id[:-7])
-            tar.close()
-        else:
-            print(im_id[:-7] + ' was already uncompressed')
+    os.system("rio warp {} {} --like {}".format(orig_tif, dest_tif, ref_raster))
     

@@ -10,12 +10,14 @@ crop_monitoring_project using ESA SNAP api tools.
 
 # Import packages
 import snappy, os, re
-from sentinelsat.sentinel import read_geojson, geojson_to_wkt
 from snappy import ProductIO, HashMap, GPF, jpy
+from math import ceil
 
 GPF.getDefaultInstance().getOperatorSpiRegistry().loadOperatorSpis()
 HashMap = snappy.jpy.get_type('java.util.HashMap')
 WKTReader = snappy.jpy.get_type('com.vividsolutions.jts.io.WKTReader')
+
+
 
 def pre_process_s1(data_dir, out_dir, area_of_int=None, ref_raster=None, polarizations=['VV','VH'], write_int=False):
     """
@@ -29,29 +31,16 @@ def pre_process_s1(data_dir, out_dir, area_of_int=None, ref_raster=None, polariz
     """
     print('Pre-processing Sentinel-1 images...')
     
-    # Check location for saving results
-    out_direc = out_dir
-    if not out_dir.endswith('/'):
-        out_direc += '/'
-    if not os.path.exists(out_dir):
-        os.makedirs(out_dir)
-        print("New directory {} was created".format(out_dir))
+    batches = make_batches(filter(re.compile(r'^S1.....GRD.*SAFE$').search, os.listdir(data_dir)))
     
-    # Get a list of S1 GRD product directory names
-    prdlist = filter(re.compile(r'^S1.....GRD.*SAFE$').search, os.listdir(data_dir))
-    
-    # Create a dictionary to read Sentinel-1 L1 GRD products
-    product = {}
-    for element in prdlist:
-        product[element[:-5]] = {}
-        #print(element)
-    
-    # List for storing location if intermediate results
-    results = {}
-    for pol in polarizations:
-        results[pol] = []
-    
-    for key, value in product.iteritems():
+    for bkey, batch in batches.iteritems():
+        
+        # List for storing location if intermediate results
+        results = {}
+        for pol in polarizations:
+            results[pol] = []
+        
+        for key, value in batch.iteritems():
             # Read the product
             value['GRD'] = ProductIO.readProduct(data_dir+key+'.SAFE/manifest.safe')
             print('Reading '+key)
@@ -84,13 +73,13 @@ def pre_process_s1(data_dir, out_dir, area_of_int=None, ref_raster=None, polariz
                 # Subset to area of interest
                 if area_of_int is not None:
                     param_subset = HashMap()
-                    param_subset.put('geoRegion', geojson_to_wkt(read_geojson(area_of_int)))
+                    param_subset.put('geoRegion', area_of_int)
                     param_subset.put('outputImageScaleInDb', False)
                     param_subset.put('sourceBandNames', getBandNames(value['terraincor_'+pol], 'Sigma0_'+pol))
                     value['subset_'+pol] = GPF.createProduct("Subset", param_subset, value['terraincor_'+pol])
                 
-                # define the name of the output
-                output_name = out_direc + pol + "_" + key
+                # define the name of the intermediate output
+                output_name = out_dir + pol + "_" + key
                 
                 # store immediate results
                 if write_int == True:
@@ -107,41 +96,67 @@ def pre_process_s1(data_dir, out_dir, area_of_int=None, ref_raster=None, polariz
                 else:
                     results[pol].append(value['subset_'+pol])
                     
-            #dispose all the intermediate products
+                #dispose all the intermediate products
+                if write_int == True:
+                    value['GRD'].dispose()
+                    value['orbit'].dispose()
+                    
+        ## Make stack of polarizations, apply mt speckle filter, log trasnform and write
+        for pol in polarizations:
+            # retrieve int products
             if write_int == True:
-                value['GRD'].dispose()
-                value['orbit'].dispose()
+                polprods = []
+                for result in results[pol]:
+                    polprods.append(ProductIO.readProduct(result))
+            else:
+                polprods = results[pol]
+                
+            # stack, apply multi-temporal speckle filter and logaritmic transform
+            stack = Sigma0_todB(mtspeckle_sigma0(stacking(polprods), pol))
+            
+            if ref_raster is not None:
+                cparams = HashMap()
+                sourceProducts = HashMap()
+                sourceProducts.put("master", ProductIO.readProduct(ref_raster))
+                sourceProducts.put("slave", stack)
+                stack = GPF.createProduct('Collocate', cparams, sourceProducts)
+            
+            # define the name of the output
+            output_name = out_dir + 'S1_' + pol + '_spk_dB_' + str(bkey)
+            
+            # write results
+            write_product(stack, output_name)
     
-    ## Make stack of polarizations, apply mt speckle filter, log trasnform and write
-    for pol in polarizations:
-        # retrieve int products
-        if write_int == True:
-            polprods = []
-            for result in results[pol]:
-                polprods.append(ProductIO.readProduct(result))
+        results = None
+            
+def make_batches(prdlist):
+    # Calculate number of batches to allow no more than 10 products
+    #prdlist = filter(re.compile(r'^S1.....GRD.*SAFE$').search, os.listdir(data_dir))
+    nbatch = ceil(len(prdlist)/10.0)
+    
+    # Get the indices of products to save
+    batchindex = {}
+    
+    # Create a dictionary to read Sentinel-1 L1 GRD products
+    batches = {}
+    
+    counter = len(prdlist)
+    for batch in range(int(nbatch)):
+        if counter >10:
+            batchindex[batch] = range(int(batch*10), 10+10*batch)
         else:
-            polprods = results[pol]
+            #print(range(int(batch*10), counter+10*batch))
+            batchindex[batch] = range(int(batch*10), counter+10*batch)
+        counter = counter - 10
         
-        # stack, apply multi-temporal speckle filter and logaritmic transform
-        stack = Sigma0_todB(mtspeckle_sigma0(stacking(polprods), pol))
+    for key, value in batchindex.iteritems():
+        batches[key] = {}
+        for index in value:
+            batches[key][prdlist[index][:-5]] = {}
+            
+    return batches
         
-        # 
-        if ref_raster is not None:
-            cparams = HashMap()
-            sourceProducts = HashMap()
-            sourceProducts.put("master", ProductIO.readProduct(ref_raster))
-            sourceProducts.put("slave", stack)
-            stack = GPF.createProduct('Collocate', cparams, sourceProducts)
-        
-        # define the name of the output
-        output_name = out_direc + 'S1_' + pol + '_spk_dB'
-        # write results
-        write_product(stack, output_name)
-        
-    # clean memory
-    product = None
-    results = None
-
+    
 def getBandNames (product, sfilter = ''):
     """
     Produces a string to use in the sourceBandNames parameter specification of SNAP operators.
@@ -229,13 +244,4 @@ def createProgressMonitor():
     JavaSystem = jpy.get_type('java.lang.System')
     monitor = PWPM(JavaSystem.out)
     return monitor
-    
-
-    
-    
-    
-    
-    
-    
-    
     

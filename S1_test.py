@@ -1,14 +1,11 @@
-
-from sentinel1_pre import *
-from sentinel2_pre import *
+from pre_process_wrp import *
 
 if __name__ == '__main__':
     
-	data_dir = '/home/azalazar/data/S1_Ibague/'
-	out_dir = '/home/azalazar/data/pre/'
-	area_of_int = '/home/azalazar/data/spatial_ref/ibagueextent.geojson'
-	ref_raster = '/home/azalazar/data/spatial_ref/ibague.dim'
-	unzipfiles(data_dir)
-	pre_process_s1(data_dir, out_dir, area_of_int, ref_raster, polarizations=['VV','VH'])
-	
-	
+    pre_process_region('Huila', ['S1','Landsat'])
+    
+    pre_process_region('Huila', ['S2'], download=True, start_date='20180311', end_date='20180331', tile='*_T18NVJ_*')
+    
+    
+
+    
