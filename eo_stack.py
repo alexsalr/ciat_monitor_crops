@@ -137,21 +137,130 @@ class S1TempStack(eoTempStack):
         da = xr.concat(xarrays, band)
         return da
     
-class S2TempStack(eoTempStack):
-    cloud_quality_limit = {'quality_cloud_confidence':9,'quality_scene_classification':3}     #quality_cloud_confidence>9,
+    def getXDataset(self):
+        xarrays = []
+        for band in self.bands_of_interest:
+            x = self.getBandXarray(band).isel(band=0)
+            x.name = band
+            xarrays.append(x)
+        ## Modify this to match standard_band_dict
+        ## band = xr.Variable('band', pd.Index(self.bands_of_interest))
+        da = xr.merge(xarrays)#xr.concat(xarrays, band)
+        return da
+
+class opticalTempStack(eoTempStack):
+    ## Init method to include indices calculation
+    def __init__(self, sourcedir, outdir, prodtype):
+        # Call eo_tempstack initialization method
+        super(opticalTempStack, self).__init__(sourcedir, outdir, prodtype)
+        # Calculate indices at initialization
+        for band in self.calculated_bands: self.calcIndex(band)
+            
+    def calcQualityPixels(self):
+        """Calculates cloud cover and shade by date from original Sentinel-2 files"""
+        qualitypixels = []
+        for date in self.getTempData('qa_cloud'):
+            cloud_mask = self.getBand('qa_cloud', date=date) > self.cloud_quality_limit['qa_cloud']
+            shadow_mask = self.getBand('qa_class', date=date).isin(self.cloud_quality_limit['qa_class'])
+            rmask = np.logical_or(cloud_mask, shadow_mask)
+            qualitypixels.append(1 - float(np.sum(rmask)) / float(rmask.size))
+        return qualitypixels
+        
+    def calcIndex(self, index):
+        """index(str): accepts NDVI and LSWI"""
+        calc_band = []
+        locations = []
+        
+        for date in self.getTempData('nir'):
+            nir = self.getBand('nir', date=date)
+            # Allow division by zero
+            np.seterr(divide='ignore', invalid='ignore')
+            # Calculate index
+            if index == 'NDVI': #(nir-red)/(nir+red)
+                red = self.getBand('red', date=date)
+                calc_band.append((nir.astype(float) - red.astype(float)) / (nir + red))
+            if index == 'LSWI': #(nir-swir1)/(nir+swir1)
+                swir1 = self.getBand('swir1', date=date)
+                calc_band.append((nir.astype(float) - swir1.astype(float)) / (nir + swir1))
+                
+        for id, date in enumerate(self.getBandsLoc('nir')):
+            bandLocation = self.out_directory+index+'_'+self.prod_type+'_'+self.bands_temporal_range['nir'][id].strftime('%Y%m%d')+'_.tif'
+            locations.append(bandLocation)
+            with rasterio.open(date) as src:
+                kwargs = src.meta
+            kwargs.update(dtype=rasterio.float32)
+            with rasterio.open(bandLocation, 'w', **kwargs) as dst:
+                dst.write_band(1, calc_band[id].astype(rasterio.float32))
+        
+        # Update object variables
+        self.setBandsLoc(index, locations)
+        self.setTempData(index, self.getTempData('nir'))
+    
+    def getMaskedBand(self, key, tempid=None, date=None):
+        if tempid is not None or date is not None:
+            cloud_mask = self.getBand('qa_cloud', tempid=tempid, date=date) > self.cloud_quality_limit['qa_cloud']
+            shadow_mask = self.getBand('qa_class', tempid=tempid, date=date).isin(self.cloud_quality_limit['qa_class'])
+            rmask = np.logical_or(cloud_mask, shadow_mask)
+            return np.ma.masked_array(self.getBand(key, tempid=tempid, date=date), mask=rmask)
+        else:
+            raise NotImplementedError('Not Implemented. Please specify date or tempid.')
+    
+    def getMaskArray(self, tempid=None, date=None):
+        if tempid is not None or date is not None:
+            cloud_mask = self.getBand('qa_cloud', tempid=tempid, date=date) > self.cloud_quality_limit['qa_cloud']
+            shadow_mask = self.getBand('qa_class', tempid=tempid, date=date).isin(self.cloud_quality_limit['qa_class'])
+            rmask = np.logical_or(cloud_mask, shadow_mask)
+            return rmask
+        else:
+            raise NotImplementedError('Not Implemented. Please specify date or tempid.')
+    
+    def getMaskXarray(self):
+        Q1 = self.getBandXarray('qa_cloud') > self.cloud_quality_limit['qa_cloud']
+        Q2 = self.getBandXarray('qa_class').isin(self.cloud_quality_limit['qa_class'])
+        xrmask = xr.ufuncs.logical_not(xr.ufuncs.logical_or(Q1, Q2))
+        return xrmask.isel(band=0).drop('band')
+    
+    def getXarray(self):
+        xarrays = []
+        bandnames = []
+        for band in self.getBandsLoc().keys():
+            bandnames.append(band)
+            if self.prod_type == 'S2' and band in ['blue', 'green', 'red', 'nir', 'swir1', 'swir2']:
+                x = self.getBandXarray(band).isel(band=0).drop('wavelength')
+            else:
+                x = self.getBandXarray(band).isel(band=0)
+            xarrays.append(x)
+        band = xr.Variable('band', pd.Index(bandnames))
+        xa = xr.concat(xarrays, band)
+        return xa
+    
+    def getXDataset(self):
+        xarrays = []
+        for band in self.getBandsLoc().keys():
+            if self.prod_type == 'S2' and band in ['blue', 'green', 'red', 'nir', 'swir1', 'swir2']:
+                x = self.getBandXarray(band).isel(band=0).drop('wavelength')
+            else:
+                x = self.getBandXarray(band).isel(band=0)
+            x.name = band
+            xarrays.append(x)
+        xa = xr.merge(xarrays)
+        xa.coords['mask'] = (('time', 'y', 'x'), self.getMaskXarray())
+        return xa
+    
+    
+class S2TempStack(opticalTempStack):
+    cloud_quality_limit = {'qa_cloud':9,'qa_class':[3]}     #quality_cloud_confidence>9,
                                                                                             #quality_scene_classification == 3
     bands_of_interest = ['B2', 'B3', 'B4', 'B8', 'B11', 'B12', 'quality_cloud_confidence','quality_scene_classification']
     
     standard_band_dict = {'B2':'blue', 'B3':'green', 'B4':'red', 'B8':'nir', 'B11':'swir1', 'B12':'swir2', 
-                          'quality_cloud_confidence':'CloudQA1','quality_scene_classification':'CloudQA2'}
+                          'quality_cloud_confidence':'qa_cloud','quality_scene_classification':'qa_class'}
     calculated_bands = ['NDVI', 'LSWI'] 
     
     ## Init method to include indices calculation
     def __init__(self, sourcedir, outdir):
         # Call eo_tempstack initialization method
         super(S2TempStack, self).__init__(sourcedir, outdir, 'S2')
-        # Calculate indices at initialization
-        for band in self.calculated_bands: self.calcIndex(band)
         
     def setBandsLoc(self, key=None, bandloc=None):
         if key is not None and bandloc is not None:
@@ -161,7 +270,7 @@ class S2TempStack(eoTempStack):
             prodlist = filter(re.compile(r'^S2.*data$').search, os.listdir(self.getSourceDir()))
             prodloclist = {}
             for band in self.bands_of_interest:
-                prodloclist[band] = list(map(lambda x: self.getSourceDir()+x+'/'+band+'.img', prodlist))
+                prodloclist[self.standard_band_dict[band]] = list(map(lambda x: self.getSourceDir()+x+'/'+band+'.img', prodlist))
             self.bands_loc = prodloclist
         
     def setTempData(self, key=None, tempdata=None):
@@ -174,70 +283,82 @@ class S2TempStack(eoTempStack):
                                                                                 '%Y%m%d').date(),value))
             self.bands_temporal_range = temp_range
         
-    def calcQualityPixels(self):
-        """Calculates cloud cover and shade by date from original Sentinel-2 files"""
-        qualitypixels = []
-        for date in self.getTempData('quality_cloud_confidence'):
-            cloud_mask = self.getBand('quality_cloud_confidence', date=date) > self.cloud_quality_limit['quality_cloud_confidence']
-            shadow_mask = self.getBand('quality_scene_classification', date=date) == self.cloud_quality_limit['quality_scene_classification']
-            rmask = np.logical_or(cloud_mask, shadow_mask)
-            qualitypixels.append(1 - float(np.sum(rmask)) / float(rmask.size))
-        return qualitypixels
-        
-    def calcIndex(self, index):
-        """index(str): accepts NDVI and LSWI"""
-        calc_band = []
-        locations = []
-        
-        for date in self.getTempData('B8'):
-            nir = self.getBand('B8', date=date)
-            # Allow division by zero
-            np.seterr(divide='ignore', invalid='ignore')
-            # Calculate index
-            if index == 'NDVI': #(nir-red)/(nir+red)
-                red = self.getBand('B4', date=date)
-                calc_band.append((nir.astype(float) - red.astype(float)) / (nir + red))
-            if index == 'LSWI': #(nir-swir1)/(nir+swir1)
-                swir1 = self.getBand('B11', date=date)
-                calc_band.append((nir.astype(float) - swir1.astype(float)) / (nir + swir1))
-        
-        # Define spatial characteristics of output object ## CHECK WHAT ARE THEY
-        for id, date in enumerate(self.getBandsLoc('B8')):
-            bandLocation = self.out_directory + index + '_' + str(id) + '_.tif'
-            locations.append(bandLocation)
-            with rasterio.open(date) as src:
-                kwargs = src.meta
-            kwargs.update(dtype=rasterio.float32)
-            with rasterio.open(bandLocation, 'w', **kwargs) as dst:
-                dst.write_band(1, calc_band[id].astype(rasterio.float32))
-        
-        # Update object variables
-        self.setBandsLoc(index, locations)
-        self.setTempData(index, self.getTempData('B8'))
     
-    def getMaskedBand(self, key, tempid=None, date=None):
-        if tempid is not None or date is not None:
-            cloud_mask = self.getBand('quality_cloud_confidence', tempid=tempid, date=date) > self.cloud_quality_limit['quality_cloud_confidence']
-            shadow_mask = self.getBand('quality_scene_classification', tempid=tempid, date=date) == self.cloud_quality_limit['quality_scene_classification']
-            rmask = np.logical_or(cloud_mask, shadow_mask)
-            return np.ma.masked_array(self.getBand(key, tempid=tempid, date=date), mask=rmask)
+class L8TempStack(opticalTempStack):
+    cloud_quality_limit = {'qa_cloud':323, 'qa_class':[16, 80, 144, 208]}     #pixel_qa>323, sr_aerosol==16/80/144/208
+    bands_of_interest = ['ref_srband2', 'ref_srband3', 'ref_srband4', 'ref_srband5', 'ref_srband6', 'ref_srband7',
+                         'ref_pixelqa', 'ref_sraerosol']
+    standard_band_dict = {'ref_srband2':'blue', 'ref_srband3':'green', 'ref_srband4':'red', 'ref_srband5':'nir',
+                          'ref_srband6':'swir1', 'ref_srband7':'swir2', 'ref_pixelqa':'qa_cloud',
+                          'ref_sraerosol':'qa_class'}
+    calculated_bands = ['NDVI', 'LSWI']
+    
+    ## Init method to include indices calculation
+    def __init__(self, sourcedir, outdir):
+        # Call eo_tempstack initialization method
+        super(L8TempStack, self).__init__(sourcedir, outdir, 'L8')
+        # Calculate indices at initialization
+        #for band in self.calculated_bands: self.calcIndex(band)
+        
+    def setBandsLoc(self, key=None, bandloc=None):
+        if key is not None and bandloc is not None:
+            self.bands_loc[key] = bandloc
         else:
-            raise NotImplementedError('Not Implemented. Please specify date or tempid.')
-            
-    def getXarray(self):
-        xarrays = []
-        bandnames = []
-        for band in self.getBandsLoc().keys():
-            try:
-                bandnames.append(self.standard_band_dict[band])
-            except:
-                bandnames.append(band)
-            if band in ['B2', 'B3', 'B4', 'B8', 'B11', 'B12']:
-                x = self.getBandXarray(band).isel(band=0).drop('wavelength')
-            else:
-                x = self.getBandXarray(band).isel(band=0)
-            xarrays.append(x)
-        band = xr.Variable('band', pd.Index(bandnames))
-        xa = xr.concat(xarrays, band)
-        return xa
+            ## Get names of files to stack in raster
+            prodlist = filter(re.compile(r'^LC08.*[0-9]$').search, os.listdir(self.getSourceDir()))
+            prodloclist = {}
+            for band in self.bands_of_interest:
+                prodloclist[self.standard_band_dict[band]] = list(map(lambda x: self.getSourceDir()+x+'/'+band+'.tif',
+                                                                 prodlist))
+            self.bands_loc = prodloclist
+        
+    def setTempData(self, key=None, tempdata=None):
+        if key is not None and tempdata is not None:
+            self.bands_temporal_range[key] = tempdata
+        else:
+            temp_range = {}
+            for key, value in self.getBandsLoc().iteritems():
+                temp_range[key] = list(map(lambda x: datetime.datetime.strptime(x.split('/')[-2][10:18], 
+                                                                                '%Y%m%d').date(),value))
+            self.bands_temporal_range = temp_range
+
+
+class L7TempStack(opticalTempStack):
+    cloud_quality_limit = {'qa_cloud':67, 'qa_class':[4, 12, 20, 36, 52]} #pixel_qa>67 cloud_qa ==4/12/20/36/52
+    bands_of_interest = ['ref_srband1', 'ref_srband2', 'ref_srband3', 'ref_srband4', 'ref_srband5', 'ref_srband7',
+                         'ref_pixelqa', 'ref_cloudqa']
+    standard_band_dict = {'ref_srband1':'blue', 'ref_srband2':'green', 'ref_srband3':'red', 'ref_srband4':'nir',
+                          'ref_srband5':'swir1', 'ref_srband7':'swir2', 'ref_pixelqa':'qa_cloud',
+                          'ref_cloudqa':'qa_class'}
+    calculated_bands = ['NDVI', 'LSWI']
     
+    ## Init method to include indices calculation
+    def __init__(self, sourcedir, outdir):
+        # Call eo_tempstack initialization method
+        super(L7TempStack, self).__init__(sourcedir, outdir, 'L7')
+        # Calculate indices at initialization
+        #for band in self.calculated_bands: self.calcIndex(band)
+        
+    def setBandsLoc(self, key=None, bandloc=None):
+        if key is not None and bandloc is not None:
+            self.bands_loc[key] = bandloc
+        else:
+            ## Get names of files to stack in raster
+            prodlist = filter(re.compile(r'^LE07.*[0-9]$').search, os.listdir(self.getSourceDir()))
+            prodloclist = {}
+            for band in self.bands_of_interest:
+                prodloclist[self.standard_band_dict[band]] = list(map(lambda x: self.getSourceDir()+x+'/'+band+'.tif',
+                                                                 prodlist))
+            self.bands_loc = prodloclist
+        
+    def setTempData(self, key=None, tempdata=None):
+        if key is not None and tempdata is not None:
+            self.bands_temporal_range[key] = tempdata
+        else:
+            temp_range = {}
+            for key, value in self.getBandsLoc().iteritems():
+                temp_range[key] = list(map(lambda x: datetime.datetime.strptime(x.split('/')[-2][10:18], 
+                                                                                '%Y%m%d').date(),value))
+            self.bands_temporal_range = temp_range
+        
+            
