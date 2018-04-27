@@ -10,7 +10,7 @@ class EOTempArray(object):
     def __init__(self, xarray_obj):
         self._obj = xarray_obj
         
-    def plot_RGB(self):
+    def plot_RGB(self, bands=['red', 'green', 'blue'], factor=0.0001):
         
         crs = ccrs.UTM('18N')
         av_dates = self._obj.coords['time'].data.tolist()
@@ -22,7 +22,7 @@ class EOTempArray(object):
             print('The EOTempArray does not contain rgb bands')
             return None
         for ix, date in enumerate(av_dates):
-            ap = rgb.isel(time=ix)/10000
+            ap = rgb.isel(time=ix)*factor
             ax = plt.subplot(math.ceil(len(av_dates)/5.0),5,1+ix, projection=crs)
             ap.plot.imshow(rgb='band', transform=crs)
         
