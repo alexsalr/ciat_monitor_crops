@@ -37,7 +37,7 @@ def pre_process_region(region, prods, download=False, start_date=None, end_date=
             
             uncompress_files(data_dir)
             sen2cor_L2A_batch('all', data_dir)
-            pre_process_s2(data_dir, out_dir, area_of_int, ref_raster, polarizations=['VV','VH'])
+            pre_process_s2(data_dir, out_dir, area_of_int)#, ref_raster, polarizations=['VV','VH'])
             
         elif prod is 'Landsat':
             uncompress_files(data_dir)

@@ -77,7 +77,7 @@ def sen2cor_L2A (res, prod):
     prod (str): location of S1 L1C product
     """
     # Hard-code location of sen2cor installation
-    os.chdir("~/sen2cor/Sen2Cor-02.05.05-Linux64/bin/")
+    os.chdir("/home/azalazar/sen2cor/Sen2Cor-02.05.05-Linux64/bin/")
     # Coerce resolution to string
     res = str(res)
     # Execute L2A_Process with resolution parameter when specified
@@ -142,6 +142,11 @@ def pre_process_s2(data_dir, out_dir, area_of_int):
     # Get a list of S2 L2A product directory names
     prdlist = filter(re.compile(r'^S2.....L2A.*SAFE$').search, os.listdir(data_dir))
     
+    # Filter products that have already been processed
+    pre_files = filter(re.compile(r'^S2.....L2A.*data$').search, os.listdir(out_dir))
+    checker = list(map(lambda x: x[0:3] + r'_MSIL2A_' + x[11:-5] + r'.SAFE', pre_files))
+    prdlist = [i for i in prdlist if i not in checker]
+    
     # Create a dictionary to read Sentinel-2 L2A products
     product = {}
     for element in prdlist:
@@ -162,12 +167,12 @@ def pre_process_s2(data_dir, out_dir, area_of_int):
         
             # Subset to area of interest
             param_subset = HashMap()
-            param_subset.put('geoRegion', geojson_to_wkt(read_geojson(area_of_int)))
+            param_subset.put('geoRegion', area_of_int)
             param_subset.put('outputImageScaleInDb', False)
             param_subset.put('bandNames', 'B2,B3,B4,B8,B11,B12,quality_cloud_confidence,quality_scene_classification')
             print('Subsetting {}'.format(key))
             value['sub'] = GPF.createProduct("Subset", param_subset, value['res10'])
-        
+            
             # Write product
             print('Writing {} subset resampled to 10m'.format(key))
             ProductIO.writeProduct(value['sub'], out_dir+key, 'BEAM-DIMAP')
