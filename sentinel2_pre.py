@@ -77,7 +77,7 @@ def sen2cor_L2A (res, prod):
     prod (str): location of S1 L1C product
     """
     # Hard-code location of sen2cor installation
-    os.chdir("/home/azalazar/sen2cor/Sen2Cor-02.05.05-Linux64/bin/")
+    os.chdir("/home/azalazar/DL_Temp/Sen2Cor-02.05.05-Linux64/bin/")
     # Coerce resolution to string
     res = str(res)
     # Execute L2A_Process with resolution parameter when specified
@@ -94,7 +94,7 @@ def sen2cor_L2A_batch (res, L1Cdir):
     L1Cdir (str): location of S1 L1C products
     """
     # Put S1 L1C directory names in list
-    L1C_files = filter(re.compile(r'^S2.....L1C.*SAFE$').search, os.listdir(L1Cdir))
+    L1C_files = filter(re.compile(r'^S2.*L1C.*SAFE$').search, os.listdir(L1Cdir))
     print("{} L1C files found in directory".format(str(len(L1C_files))))
     l1cList = []
     for L1C_file in L1C_files: # Iterate over directory names
