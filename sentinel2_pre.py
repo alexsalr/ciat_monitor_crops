@@ -140,11 +140,11 @@ def pre_process_s2(data_dir, out_dir, area_of_int):
         print("New directory {} was created".format(out_direc))
     
     # Get a list of S2 L2A product directory names
-    prdlist = filter(re.compile(r'^S2.....L2A.*SAFE$').search, os.listdir(data_dir))
+    prdlist = filter(re.compile(r'^S2.*L2A.*SAFE$').search, os.listdir(data_dir))
     
     # Filter products that have already been processed
-    pre_files = filter(re.compile(r'^S2.....L2A.*data$').search, os.listdir(out_dir))
-    checker = list(map(lambda x: x[0:3] + r'_MSIL2A_' + x[11:-5] + r'.SAFE', pre_files))
+    pre_files = filter(re.compile(r'^S2.*L2A.*data$').search, os.listdir(out_dir))
+    checker = list(map(lambda x: x[0:-5] + r'.SAFE', pre_files))
     prdlist = [i for i in prdlist if i not in checker]
     
     # Create a dictionary to read Sentinel-2 L2A products
@@ -156,8 +156,10 @@ def pre_process_s2(data_dir, out_dir, area_of_int):
     for key, value in product.iteritems():
         try:
             # Read the product
-            print('Reading {}'.format(key+'.SAFE/MTD_MSIL2A.xml'))
-            value['GRD'] = ProductIO.readProduct(data_dir+key+'.SAFE/MTD_MSIL2A.xml')
+            #print('Reading {}'.format(key+'.SAFE/MTD_MSIL2A.xml'))
+            reader = filter(re.compile(r'MTD_.*xml$').search, os.listdir(data_dir+key+'.SAFE/'))
+            print('Reading {}'.format(key+'.SAFE/'+reader[0]))
+            value['GRD'] = ProductIO.readProduct(data_dir+key+'.SAFE/'+reader[0])
         
             # Resample all bands to 10m resolution
             resample_subset = HashMap()
