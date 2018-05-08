@@ -5,13 +5,18 @@ from landsat_pre import *
 
 def pre_process_region(region, prods, download=False, start_date=None, end_date=None, tile=None):
     """
-    region (str): Huila, 
-    region 
+    region (str): Huila, Casanare, Saldana, Ibague, Valledupar
+    prods ([str]): S1, S2, Landsat
+    download (boolean): If True tries to download Sentinel data for the specified time period
+    start_date (str): Date to use for data download, format YYYYmmdd. TODO support processing of dates windows
+    end_date (str): Date to use for data download, format YYYYmmdd.
+    tile (str): 
     """
     
     area_of_int = read_aoi(region)
-    ref_raster_dim = '/home/azalazar/data/spatial_ref/'+region+'.dim'
-    ref_raster_img = '/home/azalazar/data/spatial_ref/'+region+'.data/ref.img'
+    # Try to read or build reference rasters, depends on S2-data availability
+    ref_raster_dim = read_ref_raster(region)
+    ref_raster_img = read_ref_raster(region)[:-3]+'data/B1.img'
     
     # Read 
     for prod in prods:
@@ -27,6 +32,8 @@ def pre_process_region(region, prods, download=False, start_date=None, end_date=
             
             uncompress_files(data_dir)
             
+            # Try again TODO make code not to break if not read
+            ref_raster_dim = read_ref_raster(region)
             pre_process_s1(data_dir, out_dir, area_of_int, ref_raster_dim, polarizations=['VV','VH'])
             
         elif prod is 'S2':
@@ -41,6 +48,9 @@ def pre_process_region(region, prods, download=False, start_date=None, end_date=
             
         elif prod is 'Landsat':
             uncompress_files(data_dir)
+            
+            # Try again TODO make code not to break if not read
+            ref_raster_img = read_ref_raster(region)[:-3]+'data/B1.img'
             pre_landsat_batch(data_dir, ref_raster_img)
             pre_process
             
@@ -62,17 +72,63 @@ def set_out_dir(region):
         print("New directory {} was created".format(out_direc))
     return out_direc
 
-def read_aoi(area):
+def read_aoi(region):
     #os.chdir('~/data/spatial_ref/')
     with open('/home/azalazar/data/spatial_ref/regions.csv') as csvfile:
         reader = csv.DictReader(csvfile)
         for row in reader:
             try:
-                area_wkt = row[area]
+                area_wkt = row[region]
             except KeyError as err:
                 print('The area of interest is not in spatial_ref regions file. {}'.format(err.args))
             break
     return area_wkt
+
+def read_ref_raster(region):
+    """
+    Checks if reference raster for region exists, if not, creates it using B1 of a Sentinel-2 L1C product.
+    """
+        
+    # Requires snappy, currently imported in sentinel1_pre/sentinel2_pre
+    loc_raster = '/home/azalazar/data/spatial_ref/'+region+'.dim'
+    if os.path.isfile(loc_raster):
+        return loc_raster
+    else:
+        # Import required packages
+        import snappy, os, re
+        from snappy import ProductIO, HashMap, GPF, jpy
+        GPF.getDefaultInstance().getOperatorSpiRegistry().loadOperatorSpis()
+        HashMap = snappy.jpy.get_type('java.util.HashMap')
+        WKTReader = snappy.jpy.get_type('com.vividsolutions.jts.io.WKTReader')
+        #Construct ref_raster
+        try:
+            # Get any s2 product available
+            prdlist = filter(re.compile(r'^S2.*L1C.*SAFE$').search, os.listdir(set_data_dir(region, 'S2')))
+            get_first_product = prdlist[0]
+            # Read reference product
+            ref_product = 
+            # Resample all bands to 10m resolution
+            resample_subset = HashMap()
+            resample_subset.put('targetResolution', 10)
+            resampled = GPF.createProduct('Resample', resample_subset, ref_product)
+        
+            # Subset to area of interest
+            param_subset = HashMap()
+            param_subset.put('geoRegion', read_aoi(region))
+            param_subset.put('outputImageScaleInDb', False)
+            param_subset.put('bandNames', 'B1')
+            subset = GPF.createProduct("Subset", param_subset, resampled)
+            
+            # Write file
+            ProductIO.writeProduct(subset, loc_raster, 'BEAM-DIMAP')
+            
+            return loc_raster
+            
+        except:
+            e = sys.exc_info()
+            print("Reference raster for {} could not be generated: {} {} {}".format(region, e[0], e[1], e[2]))
+            
+            return None
 
 def uncompress_files(eo_dir, unzip_dir = None):
     """

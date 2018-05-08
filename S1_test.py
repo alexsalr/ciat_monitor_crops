@@ -5,9 +5,9 @@ if __name__ == '__main__':
     
     #pre_process_region('Huila', ['S1','Landsat'])
     
-    #pre_process_region('Saldana', ['S2'], download=True, start_date='20151211', end_date='20151211')#, tile='*_T18NVJ_*')
+    pre_process_region('Saldana', ['S2'], download=False)#, start_date='20151211', end_date='20151211')#, tile='*_T18NVJ_*')
     
-    download_sentinel('Sentinel-2', 'S2MSI1C', 'asalazarr', 'tila8sude', '20151210', '20151212', region=read_aoi('Saldana'), down_dir='/home/azalazar/data/Saldana/S2_try2/')
+    #download_sentinel('Sentinel-2', 'S2MSI1C', 'asalazarr', 'tila8sude', '20151210', '20151212', region=read_aoi('Saldana'), down_dir='/home/azalazar/data/Saldana/S2_try2/')
     #uncompress_files('/home/azalazar/data/Saldana/S2_try2/')
     #sen2cor_L2A_batch('all', '/home/azalazar/data/Saldana/S2_try2/')
     

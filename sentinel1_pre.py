@@ -9,13 +9,7 @@ crop_monitoring_project using ESA SNAP api tools.
 """
 
 # Import packages
-import snappy, os, re
-from snappy import ProductIO, HashMap, GPF, jpy
-from math import ceil
 
-GPF.getDefaultInstance().getOperatorSpiRegistry().loadOperatorSpis()
-HashMap = snappy.jpy.get_type('java.util.HashMap')
-WKTReader = snappy.jpy.get_type('com.vividsolutions.jts.io.WKTReader')
 
 
 
@@ -30,6 +24,13 @@ def pre_process_s1(data_dir, out_dir, area_of_int=None, ref_raster=None, polariz
         polarizations ([str]): strings of polarizations to consider in processing chain
     """
     print('Pre-processing Sentinel-1 images...')
+    import snappy, os, re
+    from snappy import ProductIO, HashMap, GPF, jpy
+    from math import ceil
+    
+    GPF.getDefaultInstance().getOperatorSpiRegistry().loadOperatorSpis()
+    HashMap = snappy.jpy.get_type('java.util.HashMap')
+    WKTReader = snappy.jpy.get_type('com.vividsolutions.jts.io.WKTReader')
     
     batches = make_batches(filter(re.compile(r'^S1.....GRD.*SAFE$').search, os.listdir(data_dir)))
     
