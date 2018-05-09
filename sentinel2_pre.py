@@ -77,7 +77,7 @@ def sen2cor_L2A (res, prod):
     prod (str): location of S1 L1C product
     """
     # Hard-code location of sen2cor installation
-    os.chdir("/home/azalazar/DL_Temp/Sen2Cor-02.05.05-Linux64/bin/")
+    os.chdir(os.environ["SEN2COR_BIN"])
     # Coerce resolution to string
     res = str(res)
     # Execute L2A_Process with resolution parameter when specified

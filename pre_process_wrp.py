@@ -15,9 +15,13 @@ def pre_process_region(region, prods, download=False, start_date=None, end_date=
     
     area_of_int = read_aoi(region)
     # Try to read or build reference rasters, depends on S2-data availability
-    ref_raster_dim = read_ref_raster(region)
-    ref_raster_img = read_ref_raster(region)[:-3]+'data/B1.img'
-    
+    try:
+        ref_raster_dim = read_ref_raster(region)
+        ref_raster_img = read_ref_raster(region)[:-3]+'data/B1.img'
+    except:
+        e = sys.exc_info()
+        print("Reference raster for {} could not be generated: {} {} {}".format(region, e[0], e[1], e[2]))
+        
     # Read 
     for prod in prods:
         
@@ -95,40 +99,36 @@ def read_ref_raster(region):
         return loc_raster
     else:
         # Import required packages
-        import snappy, os, re
+        import snappy
         from snappy import ProductIO, HashMap, GPF, jpy
         GPF.getDefaultInstance().getOperatorSpiRegistry().loadOperatorSpis()
         HashMap = snappy.jpy.get_type('java.util.HashMap')
         WKTReader = snappy.jpy.get_type('com.vividsolutions.jts.io.WKTReader')
         #Construct ref_raster
-        try:
-            # Get any s2 product available
-            prdlist = filter(re.compile(r'^S2.*L1C.*SAFE$').search, os.listdir(set_data_dir(region, 'S2')))
-            get_first_product = prdlist[0]
-            # Read reference product
-            ref_product = 
-            # Resample all bands to 10m resolution
-            resample_subset = HashMap()
-            resample_subset.put('targetResolution', 10)
-            resampled = GPF.createProduct('Resample', resample_subset, ref_product)
         
-            # Subset to area of interest
-            param_subset = HashMap()
-            param_subset.put('geoRegion', read_aoi(region))
-            param_subset.put('outputImageScaleInDb', False)
-            param_subset.put('bandNames', 'B1')
-            subset = GPF.createProduct("Subset", param_subset, resampled)
-            
-            # Write file
-            ProductIO.writeProduct(subset, loc_raster, 'BEAM-DIMAP')
-            
-            return loc_raster
-            
-        except:
-            e = sys.exc_info()
-            print("Reference raster for {} could not be generated: {} {} {}".format(region, e[0], e[1], e[2]))
-            
-            return None
+        # Get any s2 product available
+        prdlist = filter(re.compile(r'^S2.*L1C.*SAFE$').search, os.listdir(set_data_dir(region, 'S2')))
+        first_product = prdlist[0]
+        #reader = filter(re.compile(r'MTD_.*xml$').search, os.listdir(set_data_dir(region, 'S2')+get_first_product))
+        #print(get_first_product+'/'+reader)
+        # Read reference product
+        ref_product = ProductIO.readProduct(set_data_dir(region, 'S2')+first_product)#+'/'+reader)
+        # Resample all bands to 10m resolution
+        resample_subset = HashMap()
+        resample_subset.put('targetResolution', 10)
+        resampled = GPF.createProduct('Resample', resample_subset, ref_product)
+        
+        # Subset to area of interest
+        param_subset = HashMap()
+        param_subset.put('geoRegion', read_aoi(region))
+        param_subset.put('outputImageScaleInDb', False)
+        param_subset.put('bandNames', 'B1')
+        subset = GPF.createProduct("Subset", param_subset, resampled)
+        
+        # Write file
+        ProductIO.writeProduct(subset, loc_raster, 'BEAM-DIMAP')
+        
+        return loc_raster
 
 def uncompress_files(eo_dir, unzip_dir = None):
     """
