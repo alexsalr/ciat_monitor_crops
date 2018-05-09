@@ -168,7 +168,7 @@ class opticalTempStack(eoTempStack):
         
     def calcIndex(self, index):
         """index(str): accepts NDVI and LSWI"""
-        calc_band = []
+        #calc_band = []
         locations = []
         
         ## Iterate to read bands and calculate (first check if file exists)
@@ -186,16 +186,16 @@ class opticalTempStack(eoTempStack):
                 # Calculate index
                 if index == 'NDVI': #(nir-red)/(nir+red)
                     red = self.getBand('red', date=date)
-                    calc_band.append((nir.astype(float) - red.astype(float)) / (nir + red))
+                    calc_band = (nir.astype(float) - red.astype(float)) / (nir + red)
                 if index == 'LSWI': #(nir-swir1)/(nir+swir1)
                     swir1 = self.getBand('swir1', date=date)
-                    calc_band.append((nir.astype(float) - swir1.astype(float)) / (nir + swir1))
+                    calc_band = (nir.astype(float) - swir1.astype(float)) / (nir + swir1)
                 locations.append(bandLocation)
                 with rasterio.open(self.getBandsLoc('nir')[id]) as src:
                     kwargs = src.meta
                 kwargs.update(dtype=rasterio.float32)
                 with rasterio.open(bandLocation, 'w', **kwargs) as dst:
-                    dst.write_band(1, calc_band[id].astype(rasterio.float32))
+                    dst.write_band(1, calc_band.astype(rasterio.float32))
         
         # Update object variables
         self.setBandsLoc(index, locations)
@@ -289,10 +289,10 @@ class S2TempStack(opticalTempStack):
                                                                                 '%Y%m%d').date(),value))
                 except:
                     try:
-                        temp_range[key] = list(map(lambda x: datetime.datetime.strptime(x.split('/')[-2][25:33], 
+                        temp_range[key] = list(map(lambda x: datetime.datetime.strptime(x.split('/')[-2][47:55], 
                                                                                 '%Y%m%d').date(),value))
                     except ValueError:
-                        raise Exception('The S2 L2A product does not follow naming conventions (dates %Y%m%d at 11:19 or 25:33).')
+                        raise Exception('The S2 L2A product does not follow naming conventions (dates %Y%m%d at 11:19 or 47:55).')
             self.bands_temporal_range = temp_range
         
     
