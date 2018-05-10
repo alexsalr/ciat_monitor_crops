@@ -36,9 +36,14 @@ def pre_process_region(region, prods, download=False, start_date=None, end_date=
             
             uncompress_files(data_dir)
             
-            # Try again TODO make code not to break if not read
-            ref_raster_dim = read_ref_raster(region)
-            pre_process_s1(data_dir, out_dir, area_of_int, ref_raster_dim, polarizations=['VV','VH'])
+            # Try again to get the reference raster
+            try:
+                ref_raster_dim = read_ref_raster(region)
+            except:
+                print("Reference raster for {} could not be generated: {} {} {}. Processing complete Sentinel-1 tile.".format(region, e[0], e[1], e[2]))
+                pass
+            
+            pre_process_s1_by_orbit(data_dir, out_dir, area_of_int, ref_raster_dim, polarizations=['VV','VH'])
             
         elif prod is 'S2':
         
@@ -64,7 +69,7 @@ def set_data_dir(region, prod):
     data_dir = '/home/azalazar/data/'+region+'/'+prod+'/'
     if not os.path.exists(data_dir):
         os.makedirs(data_dir)
-        print ' {} dir was created'.format(data_dir)
+        print 'New directory {} was created'.format(data_dir)
     return data_dir
 
 def set_out_dir(region):

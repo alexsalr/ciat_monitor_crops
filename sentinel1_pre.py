@@ -9,9 +9,58 @@ crop_monitoring_project using ESA SNAP api tools.
 """
 
 # Import packages
+import os, shutil, re, sys, datetime
+from math import ceil
 
+from snappy import ProductIO, HashMap, GPF, jpy
+GPF.getDefaultInstance().getOperatorSpiRegistry().loadOperatorSpis()
+HashMap = jpy.get_type('java.util.HashMap')
+WKTReader = jpy.get_type('com.vividsolutions.jts.io.WKTReader')
+now = datetime.datetime.now()
 
+def pre_process_s1_by_orbit(data_dir, out_dir, area_of_int=None, ref_raster=None, polarizations=['VV','VH'], write_int=False):
+    #import os, shutil, re
+    from snappy import ProductIO
+    #polarizations_asc = ['VV','VH']
+    #polarizations_desc = ['VV','VH']
+    
+    all_products = filter(re.compile(r'^S1.....GRD.*SAFE$').search, os.listdir(data_dir))
+    
+    orbits = list(map(lambda x: str(ProductIO.readProduct(data_dir+x+'/manifest.safe').getMetadataRoot().getElement('Abstracted_Metadata').getAttribute('PASS').getData()), all_products))
+    
+    ## TODO avoid reprocessing of already processed products, possible approach, reading dates of results?, other is moving to an already processed dir
+    
+    # Move the files to new directory
+    for idx, product in enumerate(all_products):
+        #TODO check and create directory
+        shutil.move(data_dir+product,check_dir(data_dir+orbits[idx]+'/'))
+        shutil.move(data_dir+product[:-4]+'zip',check_dir(data_dir+orbits[idx]+'/'))
+    
+    # Process individually each directory
+    for orbit in ['ASCENDING', 'DESCENDING']:#list(set(orbits)):
+        #if orbit == 'ASCENDING':
+        #    polar_pro = polarizations_asc
+        #elif orbit == 'DESCENDING':
+        #    polar_pro = polarizations_desc
+        # Pass new data directory
+        data_dir_orbit = data_dir + orbit + '/'
+        out_dir_orbit = check_dir(out_dir + orbit + '/')
+        try:
+            #Call pre-process function
+            pre_process_s1(data_dir_orbit, out_dir_orbit, area_of_int=area_of_int, ref_raster=ref_raster, polarizations=polarizations, write_int=write_int)
+            
+            # Move the processed files to avoid reprocessing
+            shutil.move(data_dir_orbit, check_dir(data_dir_orbit+'processed/'))
+        except:
+            e = sys.exc_info()
+            print('Sentinel-1 with {} orbit could not be processed: {} {} {}'.format(orbit, e[0], e[1], e[2]))
 
+def check_dir(direc):
+    #import os
+    if not os.path.exists(direc):
+        os.makedirs(direc)
+        print 'New directory {} was created'.format(direc)
+    return direc
 
 def pre_process_s1(data_dir, out_dir, area_of_int=None, ref_raster=None, polarizations=['VV','VH'], write_int=False):
     """
@@ -24,15 +73,11 @@ def pre_process_s1(data_dir, out_dir, area_of_int=None, ref_raster=None, polariz
         polarizations ([str]): strings of polarizations to consider in processing chain
     """
     print('Pre-processing Sentinel-1 images...')
-    import snappy, os, re
-    from snappy import ProductIO, HashMap, GPF, jpy
-    from math import ceil
-    
-    GPF.getDefaultInstance().getOperatorSpiRegistry().loadOperatorSpis()
-    HashMap = snappy.jpy.get_type('java.util.HashMap')
-    WKTReader = snappy.jpy.get_type('com.vividsolutions.jts.io.WKTReader')
+    import snappy
     
     batches = make_batches(filter(re.compile(r'^S1.....GRD.*SAFE$').search, os.listdir(data_dir)))
+    
+    print('Processing {} batches. Results will be saved in {}'.format(str(len(batches.keys())), data_dir))
     
     for bkey, batch in batches.iteritems():
         
@@ -123,7 +168,7 @@ def pre_process_s1(data_dir, out_dir, area_of_int=None, ref_raster=None, polariz
                 stack = GPF.createProduct('Collocate', cparams, sourceProducts)
             
             # define the name of the output
-            output_name = out_dir + 'S1_' + pol + '_spk_dB_' + str(bkey)
+            output_name = out_dir + 'S1_' + pol + '_dB_P' + now.strftime("%Y%m%d") + '_' + str(bkey)
             
             # write results
             write_product(stack, output_name)
