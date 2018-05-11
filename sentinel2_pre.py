@@ -187,3 +187,8 @@ def pre_process_s2(data_dir, out_dir, area_of_int):
         except:
             e = sys.exc_info()
             print("{} could not be processed: {} {} {}".format(key, e[0], e[1], e[2]))
+            with open(data_dir+"L2A_corrupt.txt", "a") as efile:
+                efile.write(key+'\n')
+
+            
+            
