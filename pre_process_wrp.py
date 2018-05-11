@@ -1,9 +1,9 @@
-import os, re, csv
+import os, re, csv, shutil
 from sentinel1_pre import *
 from sentinel2_pre import *
 from landsat_pre import *
 
-def pre_process_region(region, prods, download=False, start_date=None, end_date=None, tile=None):
+def pre_process_region(region, prods, download=False, start_date=None, end_date=None, tile=None, ntry=0, data_server = 'LOCAL_DATA'):
     """
     region (str): Huila, Casanare, Saldana, Ibague, Valledupar
     prods ([str]): S1, S2, Landsat
@@ -11,13 +11,14 @@ def pre_process_region(region, prods, download=False, start_date=None, end_date=
     start_date (str): Date to use for data download, format YYYYmmdd. TODO support processing of dates windows
     end_date (str): Date to use for data download, format YYYYmmdd.
     tile (str): 
+    ntry (int): number of times to try processing Sentinel-2 data, as sometimes sen2cor fails
     """
     
-    area_of_int = read_aoi(region)
+    area_of_int = read_aoi(region, data_server)
     # Try to read or build reference rasters, depends on S2-data availability
     try:
-        ref_raster_dim = read_ref_raster(region)
-        ref_raster_img = read_ref_raster(region)[:-3]+'data/B1.img'
+        ref_raster_dim = read_ref_raster(region, data_server)
+        ref_raster_img = read_ref_raster(region, data_server)[:-3]+'data/B1.img'
     except:
         e = sys.exc_info()
         print("Reference raster for {} could not be generated: {} {} {}".format(region, e[0], e[1], e[2]))
@@ -25,8 +26,8 @@ def pre_process_region(region, prods, download=False, start_date=None, end_date=
     # Read 
     for prod in prods:
         
-        data_dir = set_data_dir(region, prod)
-        out_dir = set_out_dir(region)
+        data_dir = set_data_dir(region, prod, data_server)
+        out_dir = set_out_dir(region, data_server)
         
         if prod is 'S1':
             
@@ -38,8 +39,9 @@ def pre_process_region(region, prods, download=False, start_date=None, end_date=
             
             # Try again to get the reference raster
             try:
-                ref_raster_dim = read_ref_raster(region)
+                ref_raster_dim = read_ref_raster(region, data_server)
             except:
+                e = sys.exc_info()
                 print("Reference raster for {} could not be generated: {} {} {}. Processing complete Sentinel-1 tile.".format(region, e[0], e[1], e[2]))
                 pass
             
@@ -53,7 +55,28 @@ def pre_process_region(region, prods, download=False, start_date=None, end_date=
             
             uncompress_files(data_dir)
             sen2cor_L2A_batch('all', data_dir)
-            pre_process_s2(data_dir, out_dir, area_of_int)#, ref_raster, polarizations=['VV','VH'])
+            pre_process_s2(data_dir, out_dir, area_of_int)
+            
+            # Retry sen2cor
+            trycounts = 0
+            while trycounts < ntry:
+                with open(data_dir+'L2A_corrupt.txt', 'r') as f:
+                    for line in f:
+                        # Remove L2A products
+                        try:
+                            print('Removing directory {}'.format(data_dir+line[:-2]+'.SAFE/'))
+                            shutil.rmtree(data_dir+line[:-1]+'.SAFE/')
+                        except:
+                            e = sys.exc_info()
+                            print("{} product can not be removed: {} {} {}.".format(region, e[0], e[1], e[2]))
+                # Remove files list and update counter
+                os.remove(data_dir+'L2A_corrupt.txt')
+                # Update counter
+                trycounts += 1
+                # Reprocess sen2cor (processes all files that do not have a L2A product)
+                sen2cor_L2A_batch('all', data_dir)
+                # Retry processing
+                pre_process_s2(data_dir, out_dir, area_of_int)
             
         elif prod is 'Landsat':
             uncompress_files(data_dir)
@@ -65,15 +88,15 @@ def pre_process_region(region, prods, download=False, start_date=None, end_date=
             
             
 
-def set_data_dir(region, prod):
-    data_dir = '/home/azalazar/data/'+region+'/'+prod+'/'
+def set_data_dir(region, prod, data_server):
+    data_dir = os.environ[data_server]+region+'/'+prod+'/'
     if not os.path.exists(data_dir):
         os.makedirs(data_dir)
         print 'New directory {} was created'.format(data_dir)
     return data_dir
 
-def set_out_dir(region):
-    out_direc = '/home/azalazar/data/'+region+'/pre/'
+def set_out_dir(region, data_server):
+    out_direc = os.environ[data_server]+region+'/pre/'
     #if not out_dir.endswith('/'):
     #    out_direc += '/'
     if not os.path.exists(out_direc):
@@ -81,9 +104,9 @@ def set_out_dir(region):
         print("New directory {} was created".format(out_direc))
     return out_direc
 
-def read_aoi(region):
+def read_aoi(region, data_server):
     #os.chdir('~/data/spatial_ref/')
-    with open('/home/azalazar/data/spatial_ref/regions.csv') as csvfile:
+    with open(os.environ[data_server]+'spatial_ref/regions.csv') as csvfile:
         reader = csv.DictReader(csvfile)
         for row in reader:
             try:
@@ -93,13 +116,13 @@ def read_aoi(region):
             break
     return area_wkt
 
-def read_ref_raster(region):
+def read_ref_raster(region, data_server):
     """
     Checks if reference raster for region exists, if not, creates it using B1 of a Sentinel-2 L1C product.
     """
         
     # Requires snappy, currently imported in sentinel1_pre/sentinel2_pre
-    loc_raster = '/home/azalazar/data/spatial_ref/'+region+'.dim'
+    loc_raster = os.environ[data_server]+'spatial_ref/'+region+'.dim'
     if os.path.isfile(loc_raster):
         return loc_raster
     else:
@@ -112,12 +135,12 @@ def read_ref_raster(region):
         #Construct ref_raster
         
         # Get any s2 product available
-        prdlist = filter(re.compile(r'^S2.*L1C.*SAFE$').search, os.listdir(set_data_dir(region, 'S2')))
+        prdlist = filter(re.compile(r'^S2.*L1C.*SAFE$').search, os.listdir(set_data_dir(region, 'S2', data_server)))
         first_product = prdlist[0]
         #reader = filter(re.compile(r'MTD_.*xml$').search, os.listdir(set_data_dir(region, 'S2')+get_first_product))
         #print(get_first_product+'/'+reader)
         # Read reference product
-        ref_product = ProductIO.readProduct(set_data_dir(region, 'S2')+first_product)#+'/'+reader)
+        ref_product = ProductIO.readProduct(set_data_dir(region, 'S2', data_server)+first_product)#+'/'+reader)
         # Resample all bands to 10m resolution
         resample_subset = HashMap()
         resample_subset.put('targetResolution', 10)
@@ -135,6 +158,7 @@ def read_ref_raster(region):
         
         return loc_raster
 
+# TODO enable pattern as parameter for uncompressing specific files
 def uncompress_files(eo_dir, unzip_dir = None):
     """
     Unzips every zipfile in the path, and stores in directory with zipfile name+.SAFE

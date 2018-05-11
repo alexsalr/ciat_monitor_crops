@@ -72,4 +72,11 @@ conda install -c anaconda h2o h2o-py
 #cd ~/tmp
 #wget https://www.ars.usda.gov/ARSUserFiles/80420510/software/364/public_AROP_v2.2.9.tar.gz ~/tmp
 
+## Configure location for data download and processing
+echo "# Added by ciat_monitor_crops" >> ~/.bashrc 
+echo "export WIN_SVR_DATA='/mnt/workspace_cluster_6/TRANSVERSAL_PROJECTS/MADR/COMPONENTE_2/Imagenes_Satelitales/Temp/asalazar_tests/data/'" >> ~/.bashrc 
+echo "export LOCAL_DATA='/home/azalazar/data/'" >> ~/.bashrc 
+
+source ~/.bashrc
+
 
