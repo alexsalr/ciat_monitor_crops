@@ -1,9 +1,9 @@
-import os, re, csv, shutil
+import os, re, csv, shutil, zipfile, tarfile, parmap
 from sentinel1_pre import *
 from sentinel2_pre import *
 from landsat_pre import *
 
-def pre_process_region(region, prods, download=False, start_date=None, end_date=None, tile=None, ntry=0, data_server = 'LOCAL_DATA'):
+def pre_process_region(region, prods, download=False, start_date=None, end_date=None, tile=None, ntry=1, data_server = 'LOCAL_DATA'):
     """
     region (str): Huila, Casanare, Saldana, Ibague, Valledupar
     prods ([str]): S1, S2, Landsat
@@ -54,28 +54,31 @@ def pre_process_region(region, prods, download=False, start_date=None, end_date=
                 download_sentinel('Sentinel-2', 'S2MSI1C', 'asalazarr', 'tila8sude', start_date, end_date, region=area_of_int, down_dir=data_dir, filename=tile)
             
             uncompress_files(data_dir)
-            sen2cor_L2A_batch('all', data_dir)
-            pre_process_s2(data_dir, out_dir, area_of_int)
             
-            # Retry sen2cor
+            # Process data ntry times
             trycounts = 0
             while trycounts < ntry:
-                with open(data_dir+'L2A_corrupt.txt', 'r') as f:
-                    for line in f:
-                        # Remove L2A products
-                        try:
-                            print('Removing directory {}'.format(data_dir+line[:-2]+'.SAFE/'))
-                            shutil.rmtree(data_dir+line[:-1]+'.SAFE/')
-                        except:
-                            e = sys.exc_info()
-                            print("{} product can not be removed: {} {} {}.".format(region, e[0], e[1], e[2]))
-                # Remove files list and update counter
-                os.remove(data_dir+'L2A_corrupt.txt')
+                # Remove corrupted L2A files if exist
+                if os.path.isfile(data_dir+'L2A_corrupt.txt'):
+                    with open(data_dir+'L2A_corrupt.txt', 'r') as f:
+                        for line in f:
+                            # Remove L2A products
+                            try:
+                                print('Removing directory {}'.format(data_dir+line[:-2]+'.SAFE/'))
+                                shutil.rmtree(data_dir+line[:-1]+'.SAFE/')
+                            except:
+                                e = sys.exc_info()
+                                print("{} product can not be removed: {} {} {}.".format(region, e[0], e[1], e[2]))
+                    # Remove L2A-corrupted text file
+                    try:
+                        os.remove(data_dir+'L2A_corrupt.txt')
+                    except:
+                        pass
                 # Update counter
                 trycounts += 1
-                # Reprocess sen2cor (processes all files that do not have a L2A product)
+                # Process sen2cor (processes all files that do not have a L2A product)
                 sen2cor_L2A_batch('all', data_dir)
-                # Retry processing
+                # Check and subset
                 pre_process_s2(data_dir, out_dir, area_of_int)
             
         elif prod is 'Landsat':
@@ -84,7 +87,7 @@ def pre_process_region(region, prods, download=False, start_date=None, end_date=
             # Try again TODO make code not to break if not read
             ref_raster_img = read_ref_raster(region)[:-3]+'data/B1.img'
             pre_landsat_batch(data_dir, ref_raster_img)
-            pre_process
+            #pre_process
             
             
 
@@ -148,7 +151,7 @@ def read_ref_raster(region, data_server):
         
         # Subset to area of interest
         param_subset = HashMap()
-        param_subset.put('geoRegion', read_aoi(region))
+        param_subset.put('geoRegion', read_aoi(region, data_server))
         param_subset.put('outputImageScaleInDb', False)
         param_subset.put('bandNames', 'B1')
         subset = GPF.createProduct("Subset", param_subset, resampled)
@@ -167,7 +170,7 @@ def uncompress_files(eo_dir, unzip_dir = None):
         unzip_dir (string): directory where files are to be unzipped, default relative path
                             uz_data in working directory
     """
-    import zipfile, tarfile
+    
     
     # List all zip files in directory
     eo_zip_files = filter(re.compile('zip$').search, os.listdir(eo_dir))
@@ -182,31 +185,35 @@ def uncompress_files(eo_dir, unzip_dir = None):
         unzip_direc = unzip_dir
     
     if not os.path.exists(unzip_direc):
-        os.makedirs(unzip_dir)
-        print unzip_dir + ' folder' + ' was created'
+        os.makedirs(unzip_direc)
+        print unzip_direc + ' folder' + ' was created'
     
     # Make sure uncompress path ends with slash
     if unzip_direc[-1] != '/':
-        unzip_dir = unzip_direc + '/'
+        unzip_direc = unzip_direc + '/'
     
-    ## Loop over list of zip files
-    for im_id in eo_zip_files:
-        ## Unzip only if a folder with the same name does not exist
-        if not os.path.exists(unzip_direc+im_id[:-3]+'SAFE'):
-            print('Unzipping ' + im_id)
-            zip_ref = zipfile.ZipFile(eo_dir+im_id, 'r')
-            zip_ref.extractall(unzip_direc)
-            zip_ref.close()
-        else:
-            print(im_id[:-4] + ' was already uncompressed')
+    # Put parameter sets in tuples
+    eo_zip_files = list(map(lambda x: (unzip_direc, eo_dir, x), eo_zip_files))
+    eo_tar_files = list(map(lambda x: (unzip_direc, eo_dir, x), eo_tar_files))
     
-    ## Loop over list of tar files
-    for im_id in eo_tar_files:
-        ## Unztar only if a folder with the same name does not exist
-        if not os.path.exists(unzip_direc+im_id[:-7]):
-            print('Uncompressing ' + im_id)
-            tar = tarfile.open(eo_dir+im_id, 'r')
-            tar.extractall(unzip_direc+im_id[:-7])
-            tar.close()
-        else:
-            print(im_id[:-7] + ' was already uncompressed')
+    parmap.starmap(unzip_eo, eo_zip_files)
+    parmap.starmap(untar_eo, eo_tar_files)# (eo_zip_files-->(unzipdirec, im_id is each element of eo_tar/zip/files)
+
+def unzip_eo(unzip_direc, eo_dir, im_id):
+    ## Unzip only if a folder with the same name does not exist
+    if not os.path.exists(unzip_direc+im_id[:-3]+'SAFE'):
+        print('Unzipping ' + im_id)
+        zip_ref = zipfile.ZipFile(eo_dir+im_id, 'r')
+        zip_ref.extractall(unzip_direc)
+        zip_ref.close()
+    else:
+        print(im_id[:-4] + ' was already uncompressed')
+
+def untar_eo(unzip_direc, eo_dir, im_id):
+    if not os.path.exists(unzip_direc+im_id[:-7]):
+        print('Uncompressing ' + im_id)
+        tar = tarfile.open(eo_dir+im_id, 'r')
+        tar.extractall(unzip_direc+im_id[:-7])
+        tar.close()
+    else:
+        print(im_id[:-7] + ' was already uncompressed')

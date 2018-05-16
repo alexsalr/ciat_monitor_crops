@@ -12,10 +12,12 @@ crop_monitoring_project using ESA SNAP api tools.
 import os, shutil, re, sys, datetime
 from math import ceil
 
-from snappy import ProductIO, HashMap, GPF, jpy
-GPF.getDefaultInstance().getOperatorSpiRegistry().loadOperatorSpis()
-HashMap = jpy.get_type('java.util.HashMap')
-WKTReader = jpy.get_type('com.vividsolutions.jts.io.WKTReader')
+from snappy import ProductIO, GPF #, HashMap, GPF, jpy
+from snappy import HashMap as hashp
+
+#GPF.getDefaultInstance().getOperatorSpiRegistry().loadOperatorSpis()
+#HashMap = jpy.get_type('java.util.HashMap')
+#WKTReader = jpy.get_type('com.vividsolutions.jts.io.WKTReader')
 now = datetime.datetime.now()
 
 def pre_process_s1_by_orbit(data_dir, out_dir, area_of_int=None, ref_raster=None, polarizations=['VV','VH'], write_int=False):
@@ -50,7 +52,7 @@ def pre_process_s1_by_orbit(data_dir, out_dir, area_of_int=None, ref_raster=None
             pre_process_s1(data_dir_orbit, out_dir_orbit, area_of_int=area_of_int, ref_raster=ref_raster, polarizations=polarizations, write_int=write_int)
             
             # Move the processed files to avoid reprocessing
-            shutil.move(data_dir_orbit, check_dir(data_dir_orbit+'processed/'))
+            map(lambda x: shutil.move(data_dir_orbit+x, check_dir(data_dir_orbit+'processed/')), os.listdir(data_dir_orbit))
         except:
             e = sys.exc_info()
             print('Sentinel-1 with {} orbit could not be processed: {} {} {}'.format(orbit, e[0], e[1], e[2]))
@@ -92,13 +94,13 @@ def pre_process_s1(data_dir, out_dir, area_of_int=None, ref_raster=None, polariz
             print('Reading '+key)
             
             # Apply orbit
-            param_orbit = HashMap()
+            param_orbit = hashp()#HashMap()
             value['orbit'] = GPF.createProduct("Apply-Orbit-File", param_orbit, value['GRD'])
             
             # The following operations are specific for each polarization
             for pol in polarizations:
                 # Radiometric calibration
-                param_calibration = HashMap()
+                param_calibration = hashp()#HashMap()
                 param_calibration.put('outputSigmaBand', True)
                 param_calibration.put('sourceBands', getBandNames(value['orbit'], 'Intensity_'+pol))
                 param_calibration.put('selectedPolarisations', pol)
@@ -106,7 +108,7 @@ def pre_process_s1(data_dir, out_dir, area_of_int=None, ref_raster=None, polariz
                 value['calibration_'+pol] = GPF.createProduct("Calibration", param_calibration, value['orbit'])
                 
                 # Terrain correction
-                param_terraincor = HashMap()
+                param_terraincor = hashp()#HashMap()
                 param_terraincor.put('demResamplingMethod', 'NEAREST_NEIGHBOUR')
                 param_terraincor.put('imgResamplingMethod', 'NEAREST_NEIGHBOUR')
                 param_terraincor.put('applyRadiometricNormalization', True)
@@ -118,7 +120,7 @@ def pre_process_s1(data_dir, out_dir, area_of_int=None, ref_raster=None, polariz
                 
                 # Subset to area of interest
                 if area_of_int is not None:
-                    param_subset = HashMap()
+                    param_subset = hashp()#HashMap()
                     param_subset.put('geoRegion', area_of_int)
                     param_subset.put('outputImageScaleInDb', False)
                     param_subset.put('sourceBandNames', getBandNames(value['terraincor_'+pol], 'Sigma0_'+pol))
@@ -161,8 +163,8 @@ def pre_process_s1(data_dir, out_dir, area_of_int=None, ref_raster=None, polariz
             stack = Sigma0_todB(mtspeckle_sigma0(stacking(polprods), pol))
             
             if ref_raster is not None:
-                cparams = HashMap()
-                sourceProducts = HashMap()
+                cparams = hashp()#HashMap()
+                sourceProducts = hashp()#HashMap()
                 sourceProducts.put("master", ProductIO.readProduct(ref_raster))
                 sourceProducts.put("slave", stack)
                 stack = GPF.createProduct('Collocate', cparams, sourceProducts)
@@ -234,7 +236,7 @@ def stacking(product_set):
     prod_set = [product for product in product_set if not product.getNumBands() == 0]
             
     # define the stack parameters
-    params = HashMap()
+    params = hashp()#HashMap()
     params.put('resamplingType', 'NEAREST_NEIGHBOUR')
     params.put('initialOffsetMethod', 'Product Geolocation')
     params.put('extent', 'Master')
@@ -254,7 +256,7 @@ def mtspeckle_sigma0 (stacked_prod, pol):
         pol (str): polarization to apply the speckle filter (VV or VH)
     Output:
     """
-    param_specklefilter = HashMap()
+    param_specklefilter = hashp()#HashMap()
     param_specklefilter.put('sourceBandNames', getBandNames(stacked_prod, "Sigma0_"+pol))
     param_specklefilter.put('filter', 'Lee Sigma')
     sf_product = GPF.createProduct("Multi-Temporal-Speckle-Filter", param_specklefilter, stacked_prod)
@@ -268,7 +270,7 @@ def Sigma0_todB (product):
         product: product with Sigma0 bands in linear units
     Output:
     """
-    param_logdB = HashMap()
+    param_logdB = hashp()#HashMap()
     param_logdB.put('sourceBandNames', getBandNames(product))
     db_product = GPF.createProduct("LinearToFromdB", param_logdB, product)
     return db_product
@@ -283,11 +285,10 @@ def write_product (product, out_name):
         out_name (str): name/location of the output file
     """
     print('Writing {}, with bands: {}.'.format(out_name, getBandNames(product)))
-    ProductIO.writeProduct(product, out_name, 'BEAM-DIMAP', pm = createProgressMonitor())
+    ProductIO.writeProduct(product, out_name, 'BEAM-DIMAP')#, pm = createProgressMonitor())
 
-def createProgressMonitor():
-    PWPM = jpy.get_type('com.bc.ceres.core.PrintWriterProgressMonitor')
-    JavaSystem = jpy.get_type('java.lang.System')
-    monitor = PWPM(JavaSystem.out)
-    return monitor
-    
+#def createProgressMonitor():
+#    PWPM = jpy.get_type('com.bc.ceres.core.PrintWriterProgressMonitor')
+#    JavaSystem = jpy.get_type('java.lang.System')
+#    monitor = PWPM(JavaSystem.out)
+#    return monitor
