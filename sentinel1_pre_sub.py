@@ -95,7 +95,7 @@ def collocateToRef(product, ref_raster):
             cparams = hashp()#HashMap()
             sourceProducts = hashp()#HashMap()
             sourceProducts.put("master", ProductIO.readProduct(ref_raster))
-            sourceProducts.put("slave", stack)
+            sourceProducts.put("slave", product)
             return GPF.createProduct('Collocate', cparams, sourceProducts)
         else:
             print('No reference raster was provided')

@@ -20,7 +20,7 @@ from math import ceil
 #WKTReader = jpy.get_type('com.vividsolutions.jts.io.WKTReader')
 #now = datetime.datetime.now()
 
-def pre_process_s1_by_orbit(data_dir, out_dir, area_of_int=None, ref_raster=None, polarizations=['VV','VH'], write_int=True):
+def pre_process_s1_by_orbit(data_dir, out_dir, area_of_int=None, ref_raster=None, polarizations=['VV','VH'], write_int=False):
     #import os, shutil, re
     from snappy import ProductIO
     #polarizations_asc = ['VV','VH']
@@ -183,7 +183,7 @@ def pre_process_s1(data_dir, out_dir, area_of_int=None, ref_raster=None, polariz
 #            
 def make_batches(prdlist):
      # Calculate number of batches to allow no more than 10 products
-     max_prods = 2
+     max_prods = 8
      #prdlist = filter(re.compile(r'^S1.....GRD.*SAFE$').search, os.listdir(data_dir))
      nbatch = ceil(len(prdlist)/float(max_prods))
      
