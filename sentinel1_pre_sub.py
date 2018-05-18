@@ -90,7 +90,7 @@ def write_product (product, out_name):
     print('Writing {}, with bands: {}.'.format(out_name, getBandNames(product)))
     ProductIO.writeProduct(product, out_name, 'BEAM-DIMAP')#, pm = createProgressMonitor())
 
-def collocateToRef(product, ref_raster)
+def collocateToRef(product, ref_raster):
         if ref_raster is not None:
             cparams = hashp()#HashMap()
             sourceProducts = hashp()#HashMap()
@@ -146,22 +146,8 @@ def process_date (prod_list, area_of_int):
         product = GPF.createProduct("Subset", param, product)
         
     return product
-    
 
-if __name__ == '__main__':
-    
-    param_str = sys.argv[1]
-    param = json.loads(param_str)  # decode json string into dictionnary
-    
-    # Retrieve parameters
-    data_dir = param['data_dir']
-    out_dir= param['out_dir']
-    area_of_int= param['area_of_int']
-    ref_raster = param['ref_raster']
-    polarizations = param['polarizations']
-    write_int = param['write_int']
-    bkey = param['bkey']
-    batch = param['batch']
+def main(data_dir, out_dir, area_of_int, ref_raster, polarizations, write_int, bkey, batch):
     
     # Read products
     for key, value in batch.iteritems():
@@ -205,4 +191,23 @@ if __name__ == '__main__':
         output_name = out_dir + 'S1_' + pol + '_dB_P' + datetime.datetime.now().strftime("%Y%m%d") + '_' + str(bkey)
         # stack, apply multi-temporal speckle filter and logaritmic transform
         write_product(Sigma0_todB(collocateToRef(mtspeckle_sigma0(stack, pol),ref_raster)), output_name)
-        
+
+if __name__ == '__main__':
+    
+    param_str = sys.argv[1]
+    # Decode json string into dictionnary
+    param = json.loads(param_str)
+    
+    # Retrieve parameters
+    data_dir = param['data_dir']
+    out_dir= param['out_dir']
+    area_of_int= param['area_of_int']
+    ref_raster = param['ref_raster']
+    polarizations = param['polarizations']
+    write_int = param['write_int']
+    bkey = param['bkey']
+    batch = param['batch']
+    
+    # Pre-process batch
+    main(data_dir, out_dir, area_of_int, ref_raster, polarizations, write_int, bkey, batch)
+    
