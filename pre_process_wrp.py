@@ -95,7 +95,7 @@ def set_data_dir(region, prod, data_server):
     data_dir = os.environ[data_server]+region+'/'+prod+'/'
     if not os.path.exists(data_dir):
         os.makedirs(data_dir)
-        print 'New directory {} was created'.format(data_dir)
+        print('New directory {} was created'.format(data_dir))
     return data_dir
 
 def set_out_dir(region, data_server):
@@ -186,7 +186,7 @@ def uncompress_files(eo_dir, unzip_dir = None):
     
     if not os.path.exists(unzip_direc):
         os.makedirs(unzip_direc)
-        print unzip_direc + ' folder' + ' was created'
+        print('New directory {} was created'.format(unzip_direc))
     
     # Make sure uncompress path ends with slash
     if unzip_direc[-1] != '/':

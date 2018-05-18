@@ -107,7 +107,7 @@ def process_date (prod_list, area_of_int):
         # 0 Slice assembly
         param_sliceass = hashp()
         param_sliceass.put('selectedPolarisations','VH,VV')
-        product = GPF.createProduct("SliceAssembly", param_sliceass, x), prod_list)
+        product = GPF.createProduct("SliceAssembly", param_sliceass, prod_list)
     else:
         product = prod_list[0]
     
@@ -118,7 +118,7 @@ def process_date (prod_list, area_of_int):
     # 2 Radiometric calibration
     param = hashp()
     param.put('outputSigmaBand', True)
-    param.put('sourceBands', getBandNames(value['orbit'], 'Intensity_'))
+    param.put('sourceBands', getBandNames(product, 'Intensity_'))
     param.put('selectedPolarisations', 'VH,VV')
     param.put('outputImageScaleInDb', False)
     
@@ -175,7 +175,7 @@ def main(data_dir, out_dir, area_of_int, ref_raster, polarizations, write_int, b
                 dates[date].append(batch[batch.keys()[idx]]['S1GRD'])
         
         # Process each date
-        inter_prods.append({product = process_date(dates[date], area_of_int), outname = out_dir+'S1_'+date})
+        inter_prods.append(dict([('product', process_date(dates[date], area_of_int)), ('outname', out_dir+'S1_'+date)])) 
     
     # Write products
     if write_int == True:
@@ -184,7 +184,7 @@ def main(data_dir, out_dir, area_of_int, ref_raster, polarizations, write_int, b
     # stack, apply multi-temporal speckle filter and logaritmic transform
     # map(lambda x: ProductIO.writeProduct(Sigma0_todB(mtspeckle_sigma0(stacking(polprods), x)))
     
-    stack = stacking(list(map(lambda x: x['product'], inter_prods)
+    stack = stacking(list(map(lambda x: x['product'], inter_prods)))
     
     ## Make stack of polarizations, apply mt speckle filter, log transform and write
     for pol in polarizations:
