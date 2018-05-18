@@ -3,7 +3,7 @@ from sentinel1_pre import *
 from sentinel2_pre import *
 from landsat_pre import *
 
-def pre_process_region(region, prods, download=False, start_date=None, end_date=None, tile=None, ntry=1, data_server = 'LOCAL_DATA'):
+def pre_process_region(region, prods, download=False, start_date=None, end_date=None, tile=None, ntry=1, data_server = 'LOCAL_DATA', polarizations=['VV','VH']):
     """
     region (str): Huila, Casanare, Saldana, Ibague, Valledupar
     prods ([str]): S1, S2, Landsat
@@ -45,7 +45,7 @@ def pre_process_region(region, prods, download=False, start_date=None, end_date=
                 print("Reference raster for {} could not be generated: {} {} {}. Processing complete Sentinel-1 tile.".format(region, e[0], e[1], e[2]))
                 pass
             
-            pre_process_s1_by_orbit(data_dir, out_dir, area_of_int, ref_raster_dim, polarizations=['VV','VH'])
+            pre_process_s1_by_orbit(data_dir, out_dir, area_of_int, ref_raster_dim, polarizations=polarizations)
             
         elif prod is 'S2':
         
