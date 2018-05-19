@@ -158,7 +158,7 @@ def main(data_dir, out_dir, area_of_int, ref_raster, polarizations, write_int, b
     # Make a list of dates of the products
     prod_dates = list(map(lambda x: str(batch[x]['S1GRD'].getMetadataRoot().getElement('Abstracted_Metadata').getAttribute('STATE_VECTOR_TIME').getData())[0:11], batch.keys()))
     
-    print('Processing {} dates: {}.'.format(len(set(prod_dates)), set(prod_dates)))
+    print('Processing {} dates: {}.'.format(len(set(prod_dates)), list(set(prod_dates))))
     
     # Declare a(nother) dictionary to put the sliced products by date (then use this dictionary to perform th rest of operations)
     dates = {}
