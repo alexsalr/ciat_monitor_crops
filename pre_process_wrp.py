@@ -35,7 +35,7 @@ def pre_process_region(region, prods, download=False, start_date=None, end_date=
                 from sentinel_dndl import download_sentinel
                 download_sentinel('Sentinel-1', 'GRD', 'asalazarr', 'tila8sude', start_date, end_date, region=area_of_int, down_dir=data_dir)                    
             
-            uncompress_files(data_dir)
+            #uncompress_files(data_dir)
             
             # Try again to get the reference raster
             try:
@@ -89,7 +89,42 @@ def pre_process_region(region, prods, download=False, start_date=None, end_date=
             pre_landsat_batch(data_dir, ref_raster_img)
             #pre_process
             
+def pre_process_s1_by_orbit(data_dir, out_dir, area_of_int=None, ref_raster=None, polarizations=['VV','VH'], write_int=False):
+    
+    from snappy import ProductIO
+    
+    all_products = filter(re.compile(r'^S1.....GRD.*SAFE$').search, os.listdir(data_dir))
+    
+    orbits = list(map(lambda x: str(ProductIO.readProduct(data_dir+x[:-4]+'zip').getMetadataRoot().getElement('Abstracted_Metadata').getAttribute('PASS').getData()), all_products))
+    
+    # Move the files to new directory
+    for idx, product in enumerate(all_products):
+        #shutil.move(data_dir+product,check_dir(data_dir+orbits[idx]+'/'))
+        shutil.move(data_dir+product[:-4]+'zip',check_dir(data_dir+orbits[idx]+'/'))
+    
+    # Process individually each directory
+    for orbit in ['ASCENDING', 'DESCENDING']:
+        data_dir_orbit = data_dir + orbit + '/'
+        out_dir_orbit = check_dir(out_dir + orbit + '/')
+        try:
+            #Unzip files
+            uncompress_files(data_dir_orbit)
             
+            #Call pre-process function
+            pre_process_s1(data_dir_orbit, out_dir_orbit, area_of_int=area_of_int, ref_raster=ref_raster, polarizations=polarizations, write_int=write_int)
+            
+            # Move the processed files to avoid reprocessing. TODO avoid moving when pre_process_s1 fails
+            map(lambda x: shutil.move(data_dir_orbit+x, check_dir(data_dir_orbit+'processed/')), os.listdir(data_dir_orbit))
+            
+        except:
+            e = sys.exc_info()
+            print('Sentinel-1 with {} orbit could not be processed: {} {} {}'.format(orbit, e[0], e[1], e[2]))
+
+def check_dir(direc):
+    if not os.path.exists(direc):
+        os.makedirs(direc)
+        print 'New directory {} was created'.format(direc)
+    return direc        
 
 def set_data_dir(region, prod, data_server):
     data_dir = os.environ[data_server]+region+'/'+prod+'/'
