@@ -54,8 +54,8 @@ def sen2cor_L2A_batch (res, L1Cdir):
             l1cList.append((res, L1Cdir+L1C_file))
         else:
             print("{} was already processed, removing from list".format(L1C_file))
-            
-    parmap.starmap(sen2cor_L2A, l1cList)
+    
+    parmap.starmap(sen2cor_L2A, l1cList, pm_chunksize=12)
     
 ## Pre-processing of Sentinel-2 L2A products
 
