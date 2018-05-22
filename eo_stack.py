@@ -6,6 +6,7 @@ Created on Tue Apr 17 15:32:31 2018
 """
 
 import rasterio, os, re, datetime
+import dask
 import numpy as np
 import pandas as pd
 import xarray as xr
@@ -138,15 +139,27 @@ class S1TempStack(eoTempStack):
         return da
     
     def getXDataset(self):
-        xarrays = []
-        for band in self.bands_of_interest:
-            x = self.getBandXarray(band).isel(band=0)
-            x.name = band
-            xarrays.append(x)
-        ## Modify this to match standard_band_dict
-        ## band = xr.Variable('band', pd.Index(self.bands_of_interest))
-        da = xr.merge(xarrays)#xr.concat(xarrays, band)
-        return da
+        # Check if dataset already exists
+        if os.path.isfile(self.out_directory+self.prod_type+'.nc'):
+            ds = xr.open_dataset(self.out_directory+self.prod_type+'.nc', chunks={'time':1})
+        # Otherwise, create it
+        else:
+            xarrays = []
+            for band in self.bands_of_interest:
+                x = self.getBandXarray(band).isel(band=0)
+                x.name = band
+                xarrays.append(x)
+            ## Modify this to match standard_band_dict
+            ## band = xr.Variable('band', pd.Index(self.bands_of_interest))
+            mda = xr.merge(xarrays)#xr.concat(xarrays, band)
+            
+            ## Save the computed xr dataset
+            mda.to_netcdf(self.out_directory+self.prod_type+'.nc')
+            
+            ## Read as dask array
+            ds = xr.open_dataset(self.out_directory+self.prod_type+'.nc', chunks={'time':1})
+            
+        return ds
 
 class opticalTempStack(eoTempStack):
     ## Init method to include indices calculation
@@ -240,19 +253,29 @@ class opticalTempStack(eoTempStack):
         return xa
     
     def getXDataset(self):
-        xarrays = []
-        for band in self.getBandsLoc().keys():
-            if self.prod_type == 'S2' and band in ['blue', 'green', 'red', 'nir', 'swir1', 'swir2']:
-                x = self.getBandXarray(band).isel(band=0).drop('wavelength')
-            else:
-                x = self.getBandXarray(band).isel(band=0)
-            x.name = band
-            xarrays.append(x)
-        xa = xr.merge(xarrays)
-        xa.coords['mask'] = (('time', 'y', 'x'), self.getMaskXarray())
-        return xa
-    
-    
+        # TODO make possible to update when new eo images are obtained
+        # Check if dataset already exists
+        if os.path.isfile(self.out_directory+self.prod_type+'.nc'):
+            ds = xr.open_dataset(self.out_directory+self.prod_type+'.nc', chunks={'time':1})
+        # Otherwise create
+        else:
+            xarrays = []
+            for band in self.getBandsLoc().keys():
+                if self.prod_type == 'S2' and band in ['blue', 'green', 'red', 'nir', 'swir1', 'swir2']:
+                    x = self.getBandXarray(band).isel(band=0).drop('wavelength')
+                else:
+                    x = self.getBandXarray(band).isel(band=0)
+                x.name = band
+                xarrays.append(x)
+            xa = xr.merge(xarrays)
+            xa.coords['mask'] = (('time', 'y', 'x'), self.getMaskXarray())
+            xa.to_netcdf(self.out_directory+self.prod_type+'.nc')
+            
+            ds = xr.open_dataset(self.out_directory+self.prod_type+'.nc', chunks={'time':1})
+        
+        return ds
+
+
 class S2TempStack(opticalTempStack):
     cloud_quality_limit = {'qa_cloud':9,'qa_class':[3]}     #quality_cloud_confidence>9,
                                                                                             #quality_scene_classification == 3
