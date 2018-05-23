@@ -81,13 +81,16 @@ def pre_process_region(region, prods, download=False, start_date=None, end_date=
                 # Check and subset
                 pre_process_s2(data_dir, out_dir, area_of_int)
             
-        elif prod is 'Landsat':
+        elif prod in ['LE07','LC08']:
+            #
             uncompress_files(data_dir)
             
             # Try again TODO make code not to break if not read
-            ref_raster_img = read_ref_raster(region)[:-3]+'data/B1.img'
-            pre_landsat_batch(data_dir, ref_raster_img)
-            #pre_process
+            ref_raster_img = read_ref_raster(region, data_server)[:-3]+'data/B1.img'
+            
+            #
+            pre_landsat_batch(data_dir, out_dir, ref_raster_img)
+            
             
 def pre_process_s1_by_orbit(data_dir, out_dir, area_of_int=None, ref_raster=None, polarizations=['VV','VH'], write_int=False):
     
@@ -105,13 +108,13 @@ def pre_process_s1_by_orbit(data_dir, out_dir, area_of_int=None, ref_raster=None
     # Process individually each directory
     for orbit in ['ASCENDING', 'DESCENDING']:
         data_dir_orbit = data_dir + orbit + '/'
-        out_dir_orbit = check_dir(out_dir + orbit + '/')
+        out_dir_orbit = check_dir(out_dir)# + orbit + '/')
         try:
             #Unzip files
             uncompress_files(data_dir_orbit)
             
             #Call pre-process function
-            pre_process_s1(data_dir_orbit, out_dir_orbit, area_of_int=area_of_int, ref_raster=ref_raster, polarizations=polarizations, write_int=write_int)
+            pre_process_s1(data_dir_orbit, out_dir_orbit, orbit=orbit, area_of_int=area_of_int, ref_raster=ref_raster, polarizations=polarizations, write_int=write_int)
             
             # Move the processed files to avoid reprocessing. TODO avoid moving when pre_process_s1 fails
             map(lambda x: shutil.move(data_dir_orbit+x, check_dir(data_dir_orbit+'processed/')), os.listdir(data_dir_orbit))

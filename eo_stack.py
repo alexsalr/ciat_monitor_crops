@@ -5,11 +5,12 @@ Created on Tue Apr 17 15:32:31 2018
 @author: asalazar
 """
 
-import rasterio, os, re, datetime
-import dask
+import os, re, datetime, sys
+import rasterio, dask
 import numpy as np
 import pandas as pd
 import xarray as xr
+from calendar import monthrange
 
 #from rasterio.rio import stack
 
@@ -28,26 +29,22 @@ class eoTempStack(object):
         
         @sourcedir (str): location of products as described in @prodtype
         @outdir (str): directory to store resulting data products (raster stack)
-        @prodtype (str): accepts 'S1', 'S2', 'L7', 'L8' where
+        @prodtype (str): accepts 'S1', 'S2', 'LE07', 'L8' where
                             'S1': set of .img files with the same extent and polarization, product from SNAP collocation Op
                             'S2': set of directories resulting from sen2cor processing Sentinel-2 level 2A product
         """        
-        ##toDO assert that sourcedir finished in slash 
+        ## TODO assert that sourcedir finished in slash 
         self.source_directory = sourcedir
         self.prod_type = prodtype
         self.out_directory = outdir
         self.bands_loc = {} #Declare dictionary. Set in setBandsLoc
         self.bands_temporal_range = {} #Declare dictionary. Set in setTempData
-        #self.tif_stack_location = {} #Declare dictionary. Set in setStackLoc
+        #self.orbit = None
         
         # Set the minimum required variables to construct the object. Implementation varies by product (subclass).
         self.setBandsLoc()
-        #self.setStackLoc()
         self.setTempData()
         
-        #buildAllStack implements temporal stacking of each band as GeoTIFF. Currently not used.
-        #self.buildAllStack()
-           
         print('{} object initialized from {}'.format(self.prod_type, self.source_directory))
         
     def getBandsLoc(self, band=None):
@@ -90,37 +87,42 @@ class eoTempStack(object):
             if date == layer:
                 return id
     
-    def getBandXarray(self, band):
-        """Returns an xarray object from all dates in a given band"""
-        time = xr.Variable('time', pd.DatetimeIndex([pd.Timestamp(f) for f in self.getTempData(band)]))
-        arlist = [xr.open_rasterio(f) for f in self.getBandsLoc(band)]
+    def getBandXarray(self, band, time_range):
+        """Returns an xarray object from all dates in a given band in a given timerange"""
+        start_date = time_range[0]
+        end_date = time_range[1]
+        # Get the times within the time_range
+        time = xr.Variable('time', pd.DatetimeIndex([pd.Timestamp(f) for f in self.getTempData(band) if start_date <= f <= end_date]))
+        # Use numpy to filter band locations and return in band
+        band_locations = np.array(self.getBandsLoc(band))[np.array(list(map(lambda f: start_date <= f <= end_date, self.getTempData(band))))].tolist()
+        # Read all bands using open_rasterio xarray method
+        arlist = [xr.open_rasterio(f) for f in band_locations]
+        # Concatenate all dates
         da = xr.concat(arlist, dim=time)
         return da
     
 class S1TempStack(eoTempStack):
     bands_of_interest = ['VV', 'VH']
     
-    def __init__(self, sourcedir, outdir):
+    def __init__(self, sourcedir, outdir, orbit):
         # Call eo_tempstack initialization method
+        self.orbit = orbit
         super(S1TempStack, self).__init__(sourcedir, outdir, 'S1')
     
     def setBandsLoc(self):
-        ## Get directory names of pre-processed S1 GRD products to process
-        proddirs = filter(re.compile(r'S1.*data$').search, os.listdir(self.source_directory))
+        ## Get directory names of pre-processed S1 products to read
+        proddirs = filter(re.compile(r'S1_'+self.orbit+'.*data$').search, os.listdir(self.source_directory))
         
         ## Declare dictionary to store file location by polarizations
         prodlist = {}
         for prod_dir in proddirs:
             # List and filter img files for Sigma0 bands, store full path to file
             image_files = filter(re.compile(r'Sigma0.*img$').search, os.listdir(self.source_directory+prod_dir))
-            prodlist[prod_dir.split('_')[1]] = list(map(lambda x: self.getSourceDir()+prod_dir+'/'+x, image_files))
+            prodlist[prod_dir.split('_')[2]] = list(map(lambda x: self.getSourceDir()+prod_dir+'/'+x, image_files))
         # Store the dictionary of files location as instance variable
         self.bands_loc = prodlist
         
     def setTempData(self, key=None, tempdata=None):
-        #if key is not None and tempdata is not None:
-        #    self.bands_temporal_range[key] = tempdata
-        #else:
         ## Declare dictionary to store dates by polarization
         temp_range = {}
         for key, value in self.getBandsLoc().iteritems():
@@ -128,38 +130,48 @@ class S1TempStack(eoTempStack):
             # Store dictionary as instance variable
         self.bands_temporal_range = temp_range
     
-    def getXarray(self):
-        xarrays = []
-        for band in self.bands_of_interest:
-            x = self.getBandXarray(band).isel(band=0)
-            xarrays.append(x)
-        ## Modify this to match standard_band_dict
-        band = xr.Variable('band', pd.Index(self.bands_of_interest))
-        da = xr.concat(xarrays, band)
-        return da
+    #def getXarray(self):
+    #    xarrays = []
+    #    for band in self.bands_of_interest:
+    #        x = self.getBandXarray(band).isel(band=0)
+    #        xarrays.append(x)
+    #    ## Modify this to match standard_band_dict
+    #    band = xr.Variable('band', pd.Index(self.bands_of_interest))
+    #    da = xr.concat(xarrays, band)
+    #    return da
     
-    def getXDataset(self):
-        # Check if dataset already exists
-        if os.path.isfile(self.out_directory+self.prod_type+'.nc'):
-            ds = xr.open_dataset(self.out_directory+self.prod_type+'.nc', chunks={'time':1})
-        # Otherwise, create it
-        else:
-            xarrays = []
-            for band in self.bands_of_interest:
-                x = self.getBandXarray(band).isel(band=0)
-                x.name = band
-                xarrays.append(x)
-            ## Modify this to match standard_band_dict
-            ## band = xr.Variable('band', pd.Index(self.bands_of_interest))
-            mda = xr.merge(xarrays)#xr.concat(xarrays, band)
+    def createXDataset(self):
+        #try:
+            # Calculate ranges of the available data. We consider monthly ranges, from first to last day of each month
+            # print(self.getTempData())
             
-            ## Save the computed xr dataset
-            mda.to_netcdf(self.out_directory+self.prod_type+'.nc')
+            time_ranges = list(map(lambda x: (datetime.datetime.strptime('01'+x.strftime('%m%Y'), '%d%m%Y').date(),
+                            datetime.datetime.strptime(str(monthrange(x.year, x.month)[1])+x.strftime('%m%Y'), '%d%m%Y').date()), self.getTempData().itervalues().next()))
             
-            ## Read as dask array
-            ds = xr.open_dataset(self.out_directory+self.prod_type+'.nc', chunks={'time':1})
-            
-        return ds
+            # Iterate over unique date ranges (i.e. per month)            
+            for time_range in set(list(time_ranges)):
+                # Extract the month in format %Y%m
+                month = time_range[0].strftime('%Y%m')
+                # Put arrays for each band in list
+                xarrays = []
+                # Retrieve all bands
+                for band in self.bands_of_interest:
+                    try:
+                        x = self.getBandXarray(band, time_range).isel(band=0)
+                        x.name = band
+                        xarrays.append(x)
+                    except:
+                        print('{} band for S1 {} {} could not be processed'.format(band, self.orbit, month))
+                # Merge all bands in a single array
+                xa = xr.merge(xarrays)
+                # Drops unused bands
+                xa = xa.drop('band')
+                # Write array as netcdf
+                xa.to_netcdf(self.out_directory+self.prod_type+'_'+self.orbit+'_'+month+'.nc')
+                
+        #except:
+        #    e = sys.exc_info()
+        #    print('Stacking {} failed: {} {} {}'.format(self.prod_type, e[0], e[1], e[2]))
 
 class opticalTempStack(eoTempStack):
     ## Init method to include indices calculation
@@ -187,7 +199,7 @@ class opticalTempStack(eoTempStack):
         ## Iterate to read bands and calculate (first check if file exists)
         for id, date in enumerate(self.getTempData('nir')):
             # define location of index raster file
-            bandLocation = self.out_directory+index+'_'+self.prod_type+'_'+self.bands_temporal_range['nir'][id].strftime('%Y%m%d')+'_.tif'
+            bandLocation = self.source_directory+self.prod_type+'_'+index+'_'+self.bands_temporal_range['nir'][id].strftime('%Y%m%d')+'_.tif'
             # check if raster file already exists
             if os.path.isfile(bandLocation):
                 locations.append(bandLocation)
@@ -232,62 +244,75 @@ class opticalTempStack(eoTempStack):
         else:
             raise NotImplementedError('Not Implemented. Please specify date or tempid.')
     
-    def getMaskXarray(self):
-        Q1 = self.getBandXarray('qa_cloud') > self.cloud_quality_limit['qa_cloud']
-        Q2 = self.getBandXarray('qa_class').isin(self.cloud_quality_limit['qa_class'])
+    def getMaskXarray(self, time_range):
+        Q1 = self.getBandXarray('qa_cloud', time_range) > self.cloud_quality_limit['qa_cloud']
+        Q2 = self.getBandXarray('qa_class', time_range).isin(self.cloud_quality_limit['qa_class'])
         xrmask = xr.ufuncs.logical_not(xr.ufuncs.logical_or(Q1, Q2))
         return xrmask.isel(band=0).drop('band')
     
-    def getXarray(self):
-        xarrays = []
-        bandnames = []
-        for band in self.getBandsLoc().keys():
-            bandnames.append(band)
-            if self.prod_type == 'S2' and band in ['blue', 'green', 'red', 'nir', 'swir1', 'swir2']:
-                x = self.getBandXarray(band).isel(band=0).drop('wavelength')
-            else:
-                x = self.getBandXarray(band).isel(band=0)
-            xarrays.append(x)
-        band = xr.Variable('band', pd.Index(bandnames))
-        xa = xr.concat(xarrays, band)
-        return xa
+    #def getXarray(self):
+    #    xarrays = []
+    #    bandnames = []
+    #    for band in self.getBandsLoc().keys():
+    #        bandnames.append(band)
+    #        if self.prod_type == 'S2' and band in ['blue', 'green', 'red', 'nir', 'swir1', 'swir2']:
+    #            x = self.getBandXarray(band).isel(band=0).drop('wavelength')
+    #        else:
+    #            x = self.getBandXarray(band).isel(band=0)
+    #        xarrays.append(x)
+    #    band = xr.Variable('band', pd.Index(bandnames))
+    #    xa = xr.concat(xarrays, band)
+    #    return xa
     
-    def getXDataset(self):
+    def createXDataset(self):
         # TODO make possible to update when new eo images are obtained
         # Check if dataset already exists
-        if os.path.isfile(self.out_directory+self.prod_type+'.nc'):
-            ds = xr.open_dataset(self.out_directory+self.prod_type+'.nc', chunks={'time':1})
+        #if os.path.isfile(self.out_directory+self.prod_type+'.nc'):
+        #    ds = xr.open_dataset(self.out_directory+self.prod_type+'.nc', chunks={'time':1})
         # Otherwise create
-        else:
-            xarrays = []
-            for band in self.getBandsLoc().keys():
-                if self.prod_type == 'S2' and band in ['blue', 'green', 'red', 'nir', 'swir1', 'swir2']:
-                    x = self.getBandXarray(band).isel(band=0).drop('wavelength')
-                else:
-                    x = self.getBandXarray(band).isel(band=0)
-                x.name = band
-                xarrays.append(x)
-            xa = xr.merge(xarrays)
-            xa.coords['mask'] = (('time', 'y', 'x'), self.getMaskXarray())
-            xa.to_netcdf(self.out_directory+self.prod_type+'.nc')
+        try:
+            # Calculate ranges of the available data. We consider monthly ranges, from first to last day of each month
+            time_ranges = list(map(lambda x: (datetime.datetime.strptime('01'+x.strftime('%m%Y'), '%d%m%Y').date(),
+                            datetime.datetime.strptime(str(monthrange(x.year, x.month)[1])+x.strftime('%m%Y'), '%d%m%Y').date()), self.getTempData().itervalues().next()))
             
-            ds = xr.open_dataset(self.out_directory+self.prod_type+'.nc', chunks={'time':1})
-        
-        return ds
-
+            # Iterate over unique date ranges (i.e. per month)            
+            for time_range in set(list(time_ranges)):
+                # Extract the month in format %Y%m
+                month = time_range[0].strftime('%Y%m')
+                # Put arrays for each band in list
+                xarrays = []
+                # Retrieve all bands
+                for band in self.getBandsLoc().keys():
+                    if self.prod_type == 'S2' and band in ['blue', 'green', 'red', 'nir', 'swir1', 'swir2']:
+                        x = self.getBandXarray(band, time_range).isel(band=0).drop('wavelength').astype(np.uint16, copy=False)
+                    elif self.prod_type in ['LE07', 'LC8'] and band in ['blue', 'green', 'red', 'nir', 'swir1', 'swir2']:
+                        x = self.getBandXarray(band, time_range).isel(band=0).astype(np.int16, copy=False)
+                    else:
+                        x = self.getBandXarray(band, time_range).isel(band=0)
+                    x.name = band
+                    xarrays.append(x)
+                # Merge all bands in a single array
+                xa = xr.merge(xarrays)
+                # Include quality pixel band
+                xa.coords['mask'] = (('time', 'y', 'x'), self.getMaskXarray(time_range))
+                # Drops unused bands
+                xa = xa.drop('band').drop(['qa_class', 'qa_cloud'])
+                # Write array as netcdf
+                xa.to_netcdf(self.out_directory+self.prod_type+'_'+month+'.nc')
+                
+        except:
+            e = sys.exc_info()
+            print('Stacking {} failed: {} {} {}'.format(self.prod_type, e[0], e[1], e[2]))
 
 class S2TempStack(opticalTempStack):
-    cloud_quality_limit = {'qa_cloud':9,'qa_class':[3]}     #quality_cloud_confidence>9,
-                                                                                            #quality_scene_classification == 3
+    cloud_quality_limit = {'qa_cloud':9,'qa_class':[3]}     #quality_cloud_confidence>9, quality_scene_classification == 3
     bands_of_interest = ['B2', 'B3', 'B4', 'B8', 'B11', 'B12', 'quality_cloud_confidence','quality_scene_classification']
     
     standard_band_dict = {'B2':'blue', 'B3':'green', 'B4':'red', 'B8':'nir', 'B11':'swir1', 'B12':'swir2', 
                           'quality_cloud_confidence':'qa_cloud','quality_scene_classification':'qa_class'}
     calculated_bands = ['NDVI', 'LSWI'] 
     
-    ## Init method to include indices calculation
     def __init__(self, sourcedir, outdir):
-        # Call eo_tempstack initialization method
         super(S2TempStack, self).__init__(sourcedir, outdir, 'S2')
         
     def setBandsLoc(self, key=None, bandloc=None):
@@ -328,12 +353,8 @@ class L8TempStack(opticalTempStack):
                           'ref_sraerosol':'qa_class'}
     calculated_bands = ['NDVI', 'LSWI']
     
-    ## Init method to include indices calculation
     def __init__(self, sourcedir, outdir):
-        # Call eo_tempstack initialization method
-        super(L8TempStack, self).__init__(sourcedir, outdir, 'L8')
-        # Calculate indices at initialization
-        #for band in self.calculated_bands: self.calcIndex(band)
+        super(L8TempStack, self).__init__(sourcedir, outdir, 'LC08')
         
     def setBandsLoc(self, key=None, bandloc=None):
         if key is not None and bandloc is not None:
@@ -359,7 +380,7 @@ class L8TempStack(opticalTempStack):
 
 
 class L7TempStack(opticalTempStack):
-    cloud_quality_limit = {'qa_cloud':67, 'qa_class':[4, 12, 20, 36, 52]} #pixel_qa>67 cloud_qa ==4/12/20/36/52
+    cloud_quality_limit = {'qa_cloud':67, 'qa_class':[4, 12, 20, 36, 52]} #pixel_qa>67 cloud_qa ==4,12,20,36,52
     bands_of_interest = ['ref_srband1', 'ref_srband2', 'ref_srband3', 'ref_srband4', 'ref_srband5', 'ref_srband7',
                          'ref_pixelqa', 'ref_cloudqa']
     standard_band_dict = {'ref_srband1':'blue', 'ref_srband2':'green', 'ref_srband3':'red', 'ref_srband4':'nir',
@@ -369,10 +390,7 @@ class L7TempStack(opticalTempStack):
     
     ## Init method to include indices calculation
     def __init__(self, sourcedir, outdir):
-        # Call eo_tempstack initialization method
-        super(L7TempStack, self).__init__(sourcedir, outdir, 'L7')
-        # Calculate indices at initialization
-        #for band in self.calculated_bands: self.calcIndex(band)
+        super(L7TempStack, self).__init__(sourcedir, outdir, 'LE07')
         
     def setBandsLoc(self, key=None, bandloc=None):
         if key is not None and bandloc is not None:

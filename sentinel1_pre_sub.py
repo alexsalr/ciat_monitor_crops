@@ -147,7 +147,7 @@ def process_date (prod_list, area_of_int):
         
     return product
 
-def main(data_dir, out_dir, area_of_int, ref_raster, polarizations, write_int, bkey, batch):
+def main(data_dir, out_dir, orbit, area_of_int, ref_raster, polarizations, write_int, bkey, batch):
     
     # Read products
     for key, value in batch.iteritems():
@@ -188,7 +188,7 @@ def main(data_dir, out_dir, area_of_int, ref_raster, polarizations, write_int, b
     
     ## Make stack of polarizations, apply mt speckle filter, log transform and write
     for pol in polarizations:
-        output_name = out_dir + 'S1_' + pol + '_dB_P' + datetime.datetime.now().strftime("%Y%m%d") + '_' + str(bkey)
+        output_name = out_dir + 'S1_' + orbit + '_' + pol + '_P' + datetime.datetime.now().strftime("%Y%m%d") + '_' + str(bkey)
         # stack, apply multi-temporal speckle filter and logaritmic transform
         write_product(Sigma0_todB(collocateToRef(mtspeckle_sigma0(stack, pol),ref_raster)), output_name)
 
@@ -201,6 +201,7 @@ if __name__ == '__main__':
     # Retrieve parameters
     data_dir = param['data_dir']
     out_dir= param['out_dir']
+    orbit = param['orbit']
     area_of_int= param['area_of_int']
     ref_raster = param['ref_raster']
     polarizations = param['polarizations']
@@ -209,5 +210,5 @@ if __name__ == '__main__':
     batch = param['batch']
     
     # Pre-process batch
-    main(data_dir, out_dir, area_of_int, ref_raster, polarizations, write_int, bkey, batch)
+    main(data_dir, out_dir, orbit, area_of_int, ref_raster, polarizations, write_int, bkey, batch)
     

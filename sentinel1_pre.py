@@ -12,7 +12,7 @@ crop_monitoring_project using ESA SNAP api tools.
 import os, shutil, re, sys, subprocess, json
 from math import ceil
 
-def pre_process_s1(data_dir, out_dir, area_of_int=None, ref_raster=None, polarizations=['VV','VH'], write_int=False):
+def pre_process_s1(data_dir, out_dir, orbit, area_of_int=None, ref_raster=None, polarizations=['VV','VH'], write_int=False):
     """
     Args:
         data_dir (str): The location of Sentinel-1 unzipped products (.SAFE dir)
@@ -29,7 +29,7 @@ def pre_process_s1(data_dir, out_dir, area_of_int=None, ref_raster=None, polariz
     print('Processing {} batches from {}. Results will be saved in {}'.format(str(len(batches)), data_dir, out_dir))
     
     for bkey, batch in batches.iteritems():
-        params_dict = dict(data_dir = data_dir, out_dir=out_dir, area_of_int=area_of_int, ref_raster = ref_raster, polarizations = polarizations, write_int = write_int, bkey = bkey, batch = batch)
+        params_dict = dict(data_dir = data_dir, out_dir=out_dir, orbit=orbit, area_of_int=area_of_int, ref_raster = ref_raster, polarizations = polarizations, write_int = write_int, bkey = bkey, batch = batch)
         batch_json = json.dumps(params_dict)
         
         subprocess.call(['python', 'sentinel1_pre_sub.py', batch_json])
