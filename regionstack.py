@@ -57,7 +57,7 @@ class regionStack(object):
             print('Reading {} {} stack files'.format(len(files), prodtype))
             ds = xa.open_mfdataset(list(map(lambda x: datadir+x, files)),
                   chunks={'time':1})
-            return ds
+            return ds.sortby('time')
         except:
             print('No stacks available for {}'.format(prodtype))
             return None
