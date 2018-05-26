@@ -1,10 +1,17 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Wed May 23 09:31:30 2018
+
+@author: ASALAZAR
+"""
+
 import math
 import xarray as xr
 import pandas as pd
 import numpy as np
+import datetime as dt
 import cartopy.crs as ccrs
 import matplotlib.pyplot as plt
-import datetime as dt
 
 @xr.register_dataset_accessor('eotemp')
 class EOTempDataset(object):

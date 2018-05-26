@@ -1,15 +1,19 @@
 # -*- coding: utf-8 -*-
 """
-Created on Tue Apr 17 15:32:31 2018
+Module for constructing a multi-temporal earth observation dataset from pre-processed Sentinel-1, Sentinel-2, Landsat-7/8 raster files
 
 @author: asalazar
 """
 
-import os, re, datetime, sys
+import os
+import re
+import datetime
+import sys
 import rasterio, dask
 import numpy as np
 import pandas as pd
 import xarray as xr
+
 from calendar import monthrange
 
 #from rasterio.rio import stack
@@ -32,9 +36,9 @@ class eoTempStack(object):
         @prodtype (str): accepts 'S1', 'S2', 'LE07', 'L8' where
                             'S1': set of .img files with the same extent and polarization, product from SNAP collocation Op
                             'S2': set of directories resulting from sen2cor processing Sentinel-2 level 2A product
-        """        
+        """
         ## TODO assert that sourcedir finished in slash 
-        self.source_directory = sourcedir
+        self.source_directory = check_dir(sourcedir)
         self.prod_type = prodtype
         self.out_directory = outdir
         self.bands_loc = {} #Declare dictionary. Set in setBandsLoc
@@ -414,4 +418,11 @@ class L7TempStack(opticalTempStack):
                                                                                 '%Y%m%d').date(),value))
             self.bands_temporal_range = temp_range
         
-            
+def check_dir(directory):
+    """
+    Check if directory ends in slash, if not append one
+    """
+    if not directory[-1] == '/':
+        return directory+'/'
+    else:
+        return directory

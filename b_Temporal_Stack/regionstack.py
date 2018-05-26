@@ -5,12 +5,17 @@ Created on Wed May 23 09:31:30 2018
 @author: ASALAZAR
 """
 
-from eo_stack import *
-import os, re, shutil, rasterio, dask
+import os
+import re
+import shutil
+import rasterio
+import dask
 import xarray as xr
 import numpy as np
-import geopandas as gpd
 import pandas as pd
+import geopandas as gpd
+
+from eotempstack import *
 from affine import Affine
 from rasterio import features
 
