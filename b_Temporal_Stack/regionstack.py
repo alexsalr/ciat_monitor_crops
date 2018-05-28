@@ -129,28 +129,25 @@ class regionStack(object):
                 test=fields_shp.drop(train.index)
                 
                 try:
-                    phc_dates = rasterizeClassdf(train, reference_file, out_dir)
-                    phc_dates = rasterizeClassdf(train, reference_file, out_dir, nametag = 'test')
+                    phc_dates = rasterizeClassdf(train, reference_file, out_dir, nametag = 'train')
+                    phc_dates = rasterizeClassdf(test, reference_file, out_dir, nametag = 'test')
                 except:
                     print('The shapefile could not be rasterized')
                     
             else:
                 try:
-                    phc_dates = rasterizeClassdf(train, reference_file, out_dir) 
+                    phc_dates = rasterizeClassdf(train, reference_file, out_dir, nametag = 'train') 
                 except:
                     print('The shapefile could not be rasterized')
             
             #phc_dates = []
         
-        products_to_read = ['s1ASC', 's1DSC', 's2', 'l7', 'l8']
-        
-        if testset > 0.0:
-            products_to_read = products_to_read + ['s1ASC_test', 's1DSC_test', 's2_test', 'l7_test', 'l8_test']
+        products_to_read = ['train', 'test']
         
         # Try to create if does not exist
         for eo_ds in products_to_read:
             
-            netcdf_filename = out_dir+eo_ds+'_.nc'
+            netcdf_filename = out_dir+eo_ds+'.nc'
             
             if os.path.isfile(netcdf_filename):
                 pass 
@@ -164,7 +161,7 @@ class regionStack(object):
         # Try to read
         for eo_ds in products_to_read:
             
-            netcdf_filename = out_dir+eo_ds+'_.nc'
+            netcdf_filename = out_dir+eo_ds+'.nc'
             
             try:
                 self.__readTrainingDataset(netcdf_filename, eo_ds)
@@ -184,14 +181,20 @@ class regionStack(object):
         setattr(self, eods, tds)
         
     def __mergeTrainingClasses(self, eo_ds, outdir, classdates):
-        """"""
         
-        regiondataset = getattr(self, eo_ds.split('_')[0])
+        s1a = getattr(self, 's1ASC')
+        s1d = getattr(self, 's1DSC')
+        s2 = getattr(self, 's2')
+        l7 = getattr(self, 'l7')
+        l8 = getattr(self, 'l8')
         
-        try:
-            nametag=eo_ds.split('_')[1]
-        except:
-            nametag=''
+        opt_bands = ['NDVI','LSWI']
+        
+        regiondataset = xr.merge([s2[opt_bands],
+                              l7[opt_bands],
+                              l8[opt_bands],
+                              rename_variables(s1a,'ASC'),
+                              rename_variables(s1d,'DSC')])
         
         # Extract all dates with any eo image available
         time = np.array(pd.DatetimeIndex(regiondataset.time.values).date)
@@ -199,7 +202,7 @@ class regionStack(object):
         
         # Read all dates of class data
         time = xr.Variable('time', pd.DatetimeIndex([pd.Timestamp(f) for f in classdates]))
-        arlist = [xr.open_rasterio(f) for f in list(map(lambda x: outdir+'class_'+x+nametag+'.tif', classdates))]
+        arlist = [xr.open_rasterio(f) for f in list(map(lambda x: outdir+'class_'+x+eo_ds+'.tif', classdates))]
         phc_data = xr.concat(arlist, dim=time).isel(band=0).drop('band')
         
         # Extract the intersect dates
@@ -223,10 +226,18 @@ class regionStack(object):
         c_mask = c_mask.astype(bool)
         merged_ds.coords['class_mask'] = (('time', 'x', 'y'), c_mask)
         
-        return merged_ds
+        return merged_ds.chunk({'time':1})
+    
+def rename_variables(dataset,suffix,sep='_',ommit_vars=['time','x','y',]):
+    variables = dataset.variables.keys()
+    for var in ommit_vars:
+        variables.remove(var)
+    r_dict = {}
+    map(lambda x: r_dict.update({x:x+sep+suffix}), variables)
+    return dataset.rename(r_dict)
     
 def rasterizeClassdf (geopandasdf, referencefile, location, nametag = ''):
-    """Returns a list of dates
+    """ Rasterizes a pandas dataframe, writing the raster files as tif. Returns a list of dates
     @ params
     geopandasdf (geopandas): dataframe with classes as attributes and 
                   dates as column names in format 'X%Y&m&d'

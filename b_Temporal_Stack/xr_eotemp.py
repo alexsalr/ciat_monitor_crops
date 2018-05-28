@@ -105,5 +105,25 @@ class EOTempDataset(object):
         trends = slope.reshape(vals.shape[1], vals.shape[2])
         
         # Return xa dataarray
-        return self._obj.copy().isel(time=ndate).assign(trend=(['y','x'],trends)).trend
+        return trends#self._obj.copy().isel(time=ndate).assign(trend=(['y','x'],trends)).trend
         
+def determineTrendImages(region, band):
+    
+    if band in ['NDVI', 'LSWI']:
+        s2_dates = np.intersect1d(region.s2.time.values, region.train.time.values)
+        l8_dates = np.intersect1d(region.l8.time.values, region.train.time.values)
+        int_dates = np.concatenate([s2_dates, l8_dates])
+        
+        quality = region.train.mask.sel(time=int_dates).mean(dim=['x', 'y']).compute()
+        
+        return region.train.where(quality>0.8, drop=True)
+        
+    elif band in ['VV_ASC', 'VH_ASC']:
+        int_dates = np.intersect1d(region.s1_ASC.time.values, region.s1_ASC.time.values)
+        
+        return region.train.sel(time=int_dates)
+        
+    elif band in ['VV_DSC', 'VH_DSC']:
+        int_dates = np.intersect1d(region.s1_DSC.time.values, region.s1_DSC.time.values)
+        
+        return region.train.sel(time=int_dates)
