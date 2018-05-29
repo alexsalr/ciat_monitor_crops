@@ -129,20 +129,21 @@ class regionStack(object):
                 test=fields_shp.drop(train.index)
                 
                 try:
-                    phc_dates = rasterizeClassdf(train, reference_file, out_dir, nametag = 'train')
-                    phc_dates = rasterizeClassdf(test, reference_file, out_dir, nametag = 'test')
+                    phc_dates = rasterizeClassdf(train, reference_file, out_dir, nametag = '')
+                    train_dates = rasterizeClassdf(train, reference_file, out_dir, nametag = 'train')
+                    test_dates = rasterizeClassdf(test, reference_file, out_dir, nametag = 'test')
                 except:
                     print('The shapefile could not be rasterized')
                     
             else:
                 try:
-                    phc_dates = rasterizeClassdf(train, reference_file, out_dir, nametag = 'train') 
+                    phc_dates = rasterizeClassdf(train, reference_file, out_dir, nametag = '')
                 except:
                     print('The shapefile could not be rasterized')
             
             #phc_dates = []
         
-        products_to_read = ['train', 'test']
+        products_to_read = ['train']#, 'test']
         
         # Try to create if does not exist
         for eo_ds in products_to_read:
@@ -152,11 +153,11 @@ class regionStack(object):
             if os.path.isfile(netcdf_filename):
                 pass 
             else:
-                try:
-                    print('Attempting {} class dataset creation'.format(eo_ds))
-                    self.__mergeTrainingClasses(eo_ds, out_dir, phc_dates).to_netcdf(netcdf_filename)
-                except:
-                    print('{} class dataset creation failed'.format(eo_ds))
+                #try:
+                print('Attempting {} class dataset creation'.format(eo_ds))
+                self.__mergeTrainingClasses(out_dir, phc_dates).to_netcdf(netcdf_filename)
+                #except:
+                #    print('{} class dataset creation failed'.format(eo_ds))
         
         # Try to read
         for eo_ds in products_to_read:
@@ -180,7 +181,7 @@ class regionStack(object):
         print('Adding dataset with classes as {} attribute of regionStack'.format(eods))
         setattr(self, eods, tds)
         
-    def __mergeTrainingClasses(self, eo_ds, outdir, classdates):
+    def __mergeTrainingClasses(self, outdir, classdates):
         
         s1a = getattr(self, 's1ASC')
         s1d = getattr(self, 's1DSC')
@@ -190,44 +191,134 @@ class regionStack(object):
         
         opt_bands = ['NDVI','LSWI']
         
-        regiondataset = xr.merge([s2[opt_bands],
-                              l7[opt_bands],
-                              l8[opt_bands],
-                              rename_variables(s1a,'ASC'),
-                              rename_variables(s1d,'DSC')])
+        optical_dataset = xr.merge([s2[opt_bands],l7[opt_bands],l8[opt_bands]])
         
         # Extract all dates with any eo image available
-        time = np.array(pd.DatetimeIndex(regiondataset.time.values).date)
-        time = list(set(list(map(lambda x: x.strftime('%Y%m%d'), time.tolist()))))
+        #time = np.array(pd.DatetimeIndex(optical_dataset.time.values).date)
+        #time = list(set(list(map(lambda x: x.strftime('%Y%m%d'), time.tolist()))))
         
         # Read all dates of class data
         time = xr.Variable('time', pd.DatetimeIndex([pd.Timestamp(f) for f in classdates]))
-        arlist = [xr.open_rasterio(f) for f in list(map(lambda x: outdir+'class_'+x+eo_ds+'.tif', classdates))]
+        arlist = [xr.open_rasterio(f) for f in list(map(lambda x: outdir+'class_'+x+'.tif', classdates))]
         phc_data = xr.concat(arlist, dim=time).isel(band=0).drop('band')
         
         # Extract the intersect dates
-        intersect_dates = np.intersect1d(phc_data.time.values, regiondataset.time.values)
+        intersect_dates = np.intersect1d(phc_data.time.values, optical_dataset.time.values)
         
-        # Temporal subset of eo image
-        eo_dataset = regiondataset.sortby('time').sel(time=intersect_dates).transpose('time','x','y')
+        final_dates = chooseBestQuality(optical_dataset, intersect_dates)
+        
+        radar_dataset = self.assignAproxRadar(optical_dataset.sel(time=final_dates))
+        
+        sat_dataset = optical_dataset.sel(time=final_dates).merge(radar_dataset).transpose('time','x','y')
+        
         # Temporal subset of class data
-        class_data = phc_data.sortby('time').sel(time=intersect_dates).transpose('time','x','y')
+        class_data = phc_data.sortby('time').sel(time=final_dates).transpose('time','x','y')
         
         # Convert class to uint8 dtype
         class_data = class_data.astype(np.uint8, copy=False)
         # Merge to dataset
         class_data.name = 'class'
-        merged_ds = xr.merge([eo_dataset, class_data])
+        merged_ds = xr.merge([sat_dataset, class_data])
         
-        # Make a mask for pixels with class values
-        cvalues = merged_ds['class'].values
-        c_mask = np.zeros(cvalues.shape)
-        c_mask[cvalues>0.0]=1.0
-        c_mask = c_mask.astype(bool)
-        merged_ds.coords['class_mask'] = (('time', 'x', 'y'), c_mask)
+        # Make a mask for pixels for training and pixels for testing
+        #self.        
+        
+        ## look for train rasters
+        #try:
+        #train_arlist = [xr.open_rasterio(f) for f in list(map(lambda x: outdir+'class_'+x+'train.tif', classdates))]
+        #train_data = xr.concat(train_arlist, dim=time).isel(band=0).drop('band').values
+        merged_ds.coords['train'] = (('time', 'x', 'y'), make_train_test_mask(outdir, final_dates, 'train'))
+        #except:
+        #    print('No train tags for pixels available')
+        
+        #try:
+        #test_arlist = [xr.open_rasterio(f) for f in list(map(lambda x: outdir+'class_'+x+'test.tif', classdates))]
+        #test_data = xr.concat(train_arlist, dim=time).isel(band=0).drop('band').values
+        merged_ds.coords['test'] = (('time', 'x', 'y'), make_train_test_mask(outdir, final_dates, 'test'))
+        #except:
+        #    print('No test tags for pixels available')
         
         return merged_ds.chunk({'time':1})
+        
+    def assignAproxRadar(self, optical_dataset):
+        """"""
+        orbits = []
+        for orbit in ['ASC', 'DSC']:
+            renamed = rename_variables(getattr(self, 's1'+orbit), orbit)
+            
+            candidates = []
+            
+            for idx, time in enumerate(optical_dataset.time.values):
+                try:
+                    asc = renamed.sel(time=np.datetime64(time), method='nearest', 
+                                      tolerance=np.timedelta64(10, 'D'))
+                    asc['time'] = time
+                    candidates.append(asc)
+                
+                except KeyError:
+                    print('Closest available image to {} for {} is more than 10 days away'.format(time, orbit))
+                    
+            assig = xr.concat(candidates, dim='time')
+            
+            orbits.append(assig)
+        
+        return orbits[0].merge(orbits[1])
+        
+
+def make_train_test_mask(outdir, dates, classtag):
+    """
+    @params
+        dates (np.datetime64)
+        classtag (str): tag of the rasterized image
+    """
+    classdates = list(map(lambda t: str(t)[:4]+str(t)[5:7]+str(t)[8:10], dates))
+    arlist = [xr.open_rasterio(f) for f in list(map(lambda x: outdir+'class_'+x+classtag+'.tif', classdates))]
+    time = pd.DatetimeIndex(dates)
+    data_array = xr.concat(arlist, dim=time).isel(band=0).drop('band').values
+    #train_values = train_data.values
+    mask = np.zeros(data_array.shape)
+    mask[data_array>0.0]=1
+    return mask.astype(np.int16)
     
+
+def chooseBestQuality(opticalds, subset_dates=None, maxcloudcover = 0.2, mintempdistance = 5):
+    """
+    Selects the best dates complying  in an optical dataset
+    
+    @params
+    opticalds (xarray.Dataset): dataset with coordinates time,x,y
+    subset_dates ([np.datetime64]): list of dates to subset the dataset
+    maxcloudcover (float): proportion of acceptable cloud covered pixels
+    mintempdistance (int): min temporal distance in days for between images
+    """
+    if subset_dates is None:
+        subset_dates = opticalds.time.values
+    
+    quality = opticalds.mask.sel(time=subset_dates).mean(dim=['x', 'y']).compute()
+    
+    # Get only the images with sufficient quality
+    q_images = quality.where(quality>(1.0-maxcloudcover), drop=True).sortby('time')
+    
+    # Calculate distance in time when less than 5 days
+    temp_distance = q_images.time.diff('time')<np.timedelta64(mintempdistance, 'D')
+    # List to append resulting times
+    times = []
+    
+    for idx, value in enumerate(q_images.time.values):
+        #print '{}, {}'.format(idx,value)
+        if idx>0 and temp_distance.isel(time=idx-1):
+            # Get the max value
+            window = q_images.isel(time=slice(-1+idx,1+idx))
+            # Append the date of the max value
+            times.append(window.where(window==window.max(), drop=True).time.values[0])
+        else:
+            times.append(value)
+    
+    return list(set(times))
+
+
+    
+
 def rename_variables(dataset,suffix,sep='_',ommit_vars=['time','x','y',]):
     variables = dataset.variables.keys()
     for var in ommit_vars:

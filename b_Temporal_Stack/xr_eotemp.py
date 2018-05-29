@@ -107,23 +107,47 @@ class EOTempDataset(object):
         # Return xa dataarray
         return trends#self._obj.copy().isel(time=ndate).assign(trend=(['y','x'],trends)).trend
         
-def determineTrendImages(region, band):
+def determineTrendImages(regionstack, band, maxcloud=0.2):
     
     if band in ['NDVI', 'LSWI']:
-        s2_dates = np.intersect1d(region.s2.time.values, region.train.time.values)
-        l8_dates = np.intersect1d(region.l8.time.values, region.train.time.values)
+        s2_dates = np.intersect1d(regionstack.s2.time.values, regionstack.train.time.values)
+        l8_dates = np.intersect1d(regionstack.l8.time.values, regionstack.train.time.values)
         int_dates = np.concatenate([s2_dates, l8_dates])
         
-        quality = region.train.mask.sel(time=int_dates).mean(dim=['x', 'y']).compute()
+        quality = regionstack.train.mask.sel(time=int_dates).mean(dim=['x', 'y']).compute()
         
-        return region.train.where(quality>0.8, drop=True)
+        return regionstack.train.where(quality>(1.0-maxcloud), drop=True)
         
     elif band in ['VV_ASC', 'VH_ASC']:
-        int_dates = np.intersect1d(region.s1_ASC.time.values, region.s1_ASC.time.values)
+        int_dates = np.intersect1d(regionstack.s1ASC.time.values, regionstack.train.time.values)
         
-        return region.train.sel(time=int_dates)
+        return regionstack.train.sel(time=int_dates)
         
     elif band in ['VV_DSC', 'VH_DSC']:
-        int_dates = np.intersect1d(region.s1_DSC.time.values, region.s1_DSC.time.values)
+        int_dates = np.intersect1d(regionstack.s1DSC.time.values, regionstack.train.time.values)
         
-        return region.train.sel(time=int_dates)
+        return regionstack.train.sel(time=int_dates)
+
+def calcAllTrends(regionstack, bands = ['NDVI','LSWI','VV_ASC','VV_DSC','VH_DSC'], maxcloud=0.1):
+    
+    for band in bands:
+        
+        valid = determineTrendImages(regionstack, band, maxcloud=maxcloud)
+        
+        first_date = np.empty(valid[band].isel(time=0).shape)
+        first_date[:] = np.nan
+        
+        c_arrays = [first_date]
+        
+        for idx, time in enumerate(valid.time[1:].values):
+            print('Processing band {} for date {}'.format(band,time))
+            
+            c_arrays.append(valid.eotemp.calcTempTrend(band,ndate=-idx-1))
+            
+        c = np.stack(c_arrays,axis=2)
+        
+        c_array = valid.assign(change=(['x','y','time'],c))
+        c_array = c_array.transpose('time','x','y').change
+        
+        regionstack.train[band+'_c'] = c_array
+        
