@@ -268,16 +268,18 @@ class regionStack(object):
 def make_train_test_mask(outdir, dates, classtag):
     """
     @params
-        dates (np.datetime64)
-        classtag (str): tag of the rasterized image
+        outdir (str): location of the rasterized images
+        dates ([np.datetime64]): list of dates of dates of the raster
+        classtag (str): tag of the rasterized image name
     """
     classdates = list(map(lambda t: str(t)[:4]+str(t)[5:7]+str(t)[8:10], dates))
     arlist = [xr.open_rasterio(f) for f in list(map(lambda x: outdir+'class_'+x+classtag+'.tif', classdates))]
-    time = pd.DatetimeIndex(dates)
-    data_array = xr.concat(arlist, dim=time).isel(band=0).drop('band').values
+    time = xr.Variable('time', pd.DatetimeIndex([pd.Timestamp(f) for f in dates]))#pd.DatetimeIndex(dates)
+    data_array = xr.concat(arlist, dim=time).isel(band=0).drop('band').transpose('time','x','y').values
     #train_values = train_data.values
     mask = np.zeros(data_array.shape)
     mask[data_array>0.0]=1
+    
     return mask.astype(np.int16)
     
 
@@ -315,9 +317,6 @@ def chooseBestQuality(opticalds, subset_dates=None, maxcloudcover = 0.2, mintemp
             times.append(value)
     
     return list(set(times))
-
-
-    
 
 def rename_variables(dataset,suffix,sep='_',ommit_vars=['time','x','y',]):
     variables = dataset.variables.keys()
