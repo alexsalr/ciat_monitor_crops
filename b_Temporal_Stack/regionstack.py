@@ -55,21 +55,21 @@ class regionStack(object):
         try:
             self.__createDataset(prodtype, orbit)
         except:
-            print('Creation of new {} stacks failed, reading existing stacks'.format(prodtype))
+            print(('Creation of new {} stacks failed, reading existing stacks'.format(prodtype)))
         
         # Try to read existing stacks
         try:
             datadir = self.data_directory+'stack/'
             if orbit is None:
-                files = filter(re.compile(r'^'+prodtype+'.*').search, os.listdir(datadir))
+                files = list(filter(re.compile(r'^'+prodtype+'.*').search, os.listdir(datadir)))
             else:
-                files = filter(re.compile(r'^'+prodtype+'_'+orbit+'.*').search, os.listdir(datadir))
-            print('Reading {} {} stack files'.format(len(files), prodtype))
-            ds = xr.open_mfdataset(list(map(lambda x: datadir+x, files)),
+                files = list(filter(re.compile(r'^'+prodtype+'_'+orbit+'.*').search, os.listdir(datadir)))
+            print(('Reading {} {} stack files'.format(len(files), prodtype)))
+            ds = xr.open_mfdataset(list([datadir+x for x in files]),
                   chunks={'time':1})
             return ds.sortby('time')
         except:
-            print('No stacks available for {}'.format(prodtype))
+            print(('No stacks available for {}'.format(prodtype)))
             return None
     
     def __createDataset(self, prodtype, orbit=None):
@@ -80,7 +80,7 @@ class regionStack(object):
         
         if not os.path.exists(outdir):
             os.makedirs(outdir)
-            print('New directory {} was created'.format(outdir))
+            print(('New directory {} was created'.format(outdir)))
         
         if prodtype == 'S1':
             S1TempStack(sourcedir, outdir, orbit = orbit).createXDataset()
@@ -94,14 +94,14 @@ class regionStack(object):
         # Relocate files to avoid reprocessing
         if not os.path.exists(stackeddir):
             os.makedirs(stackeddir)
-            print('New directory {} was created'.format(stackeddir))
+            print(('New directory {} was created'.format(stackeddir)))
         
         if prodtype == 'S1':
-            files = filter(re.compile(r'^'+prodtype+'_'+orbit+'.*').search, os.listdir(sourcedir))
+            files = list(filter(re.compile(r'^'+prodtype+'_'+orbit+'.*').search, os.listdir(sourcedir)))
             for f in files:
                 shutil.move(sourcedir+f, stackeddir)
         else:
-            files = filter(re.compile(r'^'+prodtype+'.*').search, os.listdir(sourcedir))
+            files = list(filter(re.compile(r'^'+prodtype+'.*').search, os.listdir(sourcedir)))
             for f in files:
                 shutil.move(sourcedir+f, stackeddir)
     
@@ -119,7 +119,7 @@ class regionStack(object):
         
         if shapefile is not None:
             # Take any Sentinel-2 index calculation as reference file
-            reference_file = out_dir[:-9]+'S2/stacked/'+filter(re.compile(r'.*tif$').search,os.listdir(out_dir[:-9]+'S2/stacked/'))[0]
+            reference_file = out_dir[:-9]+'S2/stacked/'+list(filter(re.compile(r'.*tif$').search,os.listdir(out_dir[:-9]+'S2/stacked/')))[0]
             
             fields_shp = gpd.read_file(shapefile).to_crs({'init': 'epsg:32618'})
             
@@ -129,7 +129,7 @@ class regionStack(object):
                 test=fields_shp.drop(train.index)
                 
                 try:
-                    phc_dates = rasterizeClassdf(train, reference_file, out_dir, nametag = '')
+                    phc_dates = rasterizeClassdf(fields_shp, reference_file, out_dir, nametag = '')
                     train_dates = rasterizeClassdf(train, reference_file, out_dir, nametag = 'train')
                     test_dates = rasterizeClassdf(test, reference_file, out_dir, nametag = 'test')
                 except:
@@ -137,7 +137,7 @@ class regionStack(object):
                     
             else:
                 try:
-                    phc_dates = rasterizeClassdf(train, reference_file, out_dir, nametag = '')
+                    phc_dates = rasterizeClassdf(fields_shp, reference_file, out_dir, nametag = '')
                 except:
                     print('The shapefile could not be rasterized')
             
@@ -154,7 +154,7 @@ class regionStack(object):
                 pass 
             else:
                 #try:
-                print('Attempting {} class dataset creation'.format(eo_ds))
+                print(('Attempting {} class dataset creation'.format(eo_ds)))
                 self.__mergeTrainingClasses(out_dir, phc_dates).to_netcdf(netcdf_filename)
                 #except:
                 #    print('{} class dataset creation failed'.format(eo_ds))
@@ -168,7 +168,7 @@ class regionStack(object):
                 self.__readTrainingDataset(netcdf_filename, eo_ds)
                 
             except:
-                print('{} class dataset could not be read'.format(eo_ds))
+                print(('{} class dataset could not be read'.format(eo_ds)))
     
     def __readTrainingDataset(self, netcdf_filename, eods):
         tds = xr.open_mfdataset(netcdf_filename,chunks={'time':1})
@@ -178,7 +178,7 @@ class regionStack(object):
         except:
             pass
         
-        print('Adding dataset with classes as {} attribute of regionStack'.format(eods))
+        print(('Adding dataset with classes as {} attribute of regionStack'.format(eods)))
         setattr(self, eods, tds)
         
     def __mergeTrainingClasses(self, outdir, classdates):
@@ -199,11 +199,11 @@ class regionStack(object):
         
         # Read all dates of class data
         time = xr.Variable('time', pd.DatetimeIndex([pd.Timestamp(f) for f in classdates]))
-        arlist = [xr.open_rasterio(f) for f in list(map(lambda x: outdir+'class_'+x+'.tif', classdates))]
-        phc_data = xr.concat(arlist, dim=time).isel(band=0).drop('band')
+        #arlist = [xr.open_rasterio(f) for f in list(map(lambda x: outdir+'class_'+x+'.tif', classdates))]
+        #phc_data = xr.concat(arlist, dim=time).isel(band=0).drop('band')
         
         # Extract the intersect dates
-        intersect_dates = np.intersect1d(phc_data.time.values, optical_dataset.time.values)
+        intersect_dates = np.intersect1d(time.values, optical_dataset.time.values)
         
         final_dates = chooseBestQuality(optical_dataset, intersect_dates)
         
@@ -212,13 +212,13 @@ class regionStack(object):
         sat_dataset = optical_dataset.sel(time=final_dates).merge(radar_dataset).transpose('time','x','y')
         
         # Temporal subset of class data
-        class_data = phc_data.sortby('time').sel(time=final_dates).transpose('time','x','y')
+        # class_data = phc_data.sortby('time').sel(time=final_dates).transpose('time','x','y')
         
         # Convert class to uint8 dtype
-        class_data = class_data.astype(np.uint8, copy=False)
+        # class_data = class_data.astype(np.uint8, copy=False)
         # Merge to dataset
-        class_data.name = 'class'
-        merged_ds = xr.merge([sat_dataset, class_data])
+        # class_data.name = 'class'
+        #merged_ds = xr.merge([sat_dataset, class_data])
         
         # Make a mask for pixels for training and pixels for testing
         #self.        
@@ -227,14 +227,16 @@ class regionStack(object):
         #try:
         #train_arlist = [xr.open_rasterio(f) for f in list(map(lambda x: outdir+'class_'+x+'train.tif', classdates))]
         #train_data = xr.concat(train_arlist, dim=time).isel(band=0).drop('band').values
-        merged_ds.coords['train'] = (('time', 'x', 'y'), make_train_test_mask(outdir, final_dates, 'train'))
+        #merged_ds.coords['train'] = (('time', 'x', 'y'), make_train_test_mask(outdir, final_dates, 'train'))
         #except:
         #    print('No train tags for pixels available')
+        
+        merged_ds = xr.merge([sat_dataset, make_train_test_mask(outdir, final_dates, 'train'), make_train_test_mask(outdir, final_dates, 'test')])
         
         #try:
         #test_arlist = [xr.open_rasterio(f) for f in list(map(lambda x: outdir+'class_'+x+'test.tif', classdates))]
         #test_data = xr.concat(train_arlist, dim=time).isel(band=0).drop('band').values
-        merged_ds.coords['test'] = (('time', 'x', 'y'), make_train_test_mask(outdir, final_dates, 'test'))
+        #merged_ds.coords['test'] = (('time', 'x', 'y'), make_train_test_mask(outdir, final_dates, 'test'))
         #except:
         #    print('No test tags for pixels available')
         
@@ -256,7 +258,7 @@ class regionStack(object):
                     candidates.append(asc)
                 
                 except KeyError:
-                    print('Closest available image to {} for {} is more than 10 days away'.format(time, orbit))
+                    print(('Closest available image to {} for {} is more than 10 days away'.format(time, orbit)))
                     
             assig = xr.concat(candidates, dim='time')
             
@@ -272,15 +274,15 @@ def make_train_test_mask(outdir, dates, classtag):
         dates ([np.datetime64]): list of dates of dates of the raster
         classtag (str): tag of the rasterized image name
     """
-    classdates = list(map(lambda t: str(t)[:4]+str(t)[5:7]+str(t)[8:10], dates))
-    arlist = [xr.open_rasterio(f) for f in list(map(lambda x: outdir+'class_'+x+classtag+'.tif', classdates))]
+    classdates = list([str(t)[:4]+str(t)[5:7]+str(t)[8:10] for t in dates])
+    arlist = [xr.open_rasterio(f) for f in list([outdir+'class_'+x+classtag+'.tif' for x in classdates])]
     time = xr.Variable('time', pd.DatetimeIndex([pd.Timestamp(f) for f in dates]))#pd.DatetimeIndex(dates)
-    data_array = xr.concat(arlist, dim=time).isel(band=0).drop('band').transpose('time','x','y').values
+    data_array = xr.concat(arlist, dim=time).isel(band=0).drop('band').transpose('time','x','y')#.values
     #train_values = train_data.values
-    mask = np.zeros(data_array.shape)
-    mask[data_array>0.0]=1
-    
-    return mask.astype(np.int16)
+    #mask = np.zeros(data_array.shape)
+    #mask[data_array>0.0]=1
+    data_array.name = classtag
+    return data_array.astype(np.uint8, copy=False)#mask.astype(np.int16)
     
 
 def chooseBestQuality(opticalds, subset_dates=None, maxcloudcover = 0.2, mintempdistance = 5):
@@ -319,11 +321,11 @@ def chooseBestQuality(opticalds, subset_dates=None, maxcloudcover = 0.2, mintemp
     return list(set(times))
 
 def rename_variables(dataset,suffix,sep='_',ommit_vars=['time','x','y',]):
-    variables = dataset.variables.keys()
+    variables = list(dataset.variables.keys())
     for var in ommit_vars:
         variables.remove(var)
     r_dict = {}
-    map(lambda x: r_dict.update({x:x+sep+suffix}), variables)
+    list(map(lambda x: r_dict.update({x:x+sep+suffix}), variables))
     return dataset.rename(r_dict)
     
 def rasterizeClassdf (geopandasdf, referencefile, location, nametag = ''):

@@ -72,7 +72,7 @@ class EOTempDataset(object):
         
         # Extract dates
         time = pd.DatetimeIndex(temp_subset.time.values).date
-        time = np.array(map(lambda x: x.toordinal(), time))
+        time = np.array([x.toordinal() for x in time])
         
         # Mask the subset when mask is available
         try:
@@ -140,7 +140,7 @@ def calcAllTrends(regionstack, bands = ['NDVI','LSWI','VV_ASC','VV_DSC','VH_DSC'
         c_arrays = [first_date]
         
         for idx, time in enumerate(valid.time[1:].values):
-            print('Processing band {} for date {}'.format(band,time))
+            print(('Processing band {} for date {}'.format(band,time)))
             
             c_arrays.append(valid.eotemp.calcTempTrend(band,ndate=-idx-1))
             

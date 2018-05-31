@@ -49,7 +49,7 @@ class eoTempStack(object):
         self.setBandsLoc()
         self.setTempData()
         
-        print('{} object initialized from {}'.format(self.prod_type, self.source_directory))
+        print(('{} object initialized from {}'.format(self.prod_type, self.source_directory)))
         
     def getBandsLoc(self, band=None):
         if band is not None:
@@ -87,7 +87,7 @@ class eoTempStack(object):
         """Return the tempid in of the date in the  
         define if date is a string or a date type
         """
-        for id, layer in enumerate(self.getTempData().itervalues().next()):
+        for id, layer in enumerate(next(iter(self.getTempData().values()))):
             if date == layer:
                 return id
     
@@ -98,7 +98,7 @@ class eoTempStack(object):
         # Get the times within the time_range
         time = xr.Variable('time', pd.DatetimeIndex([pd.Timestamp(f) for f in self.getTempData(band) if start_date <= f <= end_date]))
         # Use numpy to filter band locations and return in band
-        band_locations = np.array(self.getBandsLoc(band))[np.array(list(map(lambda f: start_date <= f <= end_date, self.getTempData(band))))].tolist()
+        band_locations = np.array(self.getBandsLoc(band))[np.array(list([start_date <= f <= end_date for f in self.getTempData(band)]))].tolist()
         # Read all bands using open_rasterio xarray method
         arlist = [xr.open_rasterio(f) for f in band_locations]
         # Concatenate all dates
@@ -115,22 +115,22 @@ class S1TempStack(eoTempStack):
     
     def setBandsLoc(self):
         ## Get directory names of pre-processed S1 products to read
-        proddirs = filter(re.compile(r'S1_'+self.orbit+'.*data$').search, os.listdir(self.source_directory))
+        proddirs = list(filter(re.compile(r'S1_'+self.orbit+'.*data$').search, os.listdir(self.source_directory)))
         
         ## Declare dictionary to store file location by polarizations
         prodlist = {}
         for prod_dir in proddirs:
             # List and filter img files for Sigma0 bands, store full path to file
-            image_files = filter(re.compile(r'Sigma0.*img$').search, os.listdir(self.source_directory+prod_dir))
-            prodlist[prod_dir.split('_')[2]] = list(map(lambda x: self.getSourceDir()+prod_dir+'/'+x, image_files))
+            image_files = list(filter(re.compile(r'Sigma0.*img$').search, os.listdir(self.source_directory+prod_dir)))
+            prodlist[prod_dir.split('_')[2]] = list([self.getSourceDir()+prod_dir+'/'+x for x in image_files])
         # Store the dictionary of files location as instance variable
         self.bands_loc = prodlist
         
     def setTempData(self, key=None, tempdata=None):
         ## Declare dictionary to store dates by polarization
         temp_range = {}
-        for key, value in self.getBandsLoc().iteritems():
-            temp_range[key] = list(map(lambda x: datetime.datetime.strptime(x.split('/')[-1].split('_')[3],'%d%b%Y').date(), value))
+        for key, value in self.getBandsLoc().items():
+            temp_range[key] = list([datetime.datetime.strptime(x.split('/')[-1].split('_')[3],'%d%b%Y').date() for x in value])
             # Store dictionary as instance variable
         self.bands_temporal_range = temp_range
     
@@ -149,8 +149,8 @@ class S1TempStack(eoTempStack):
             # Calculate ranges of the available data. We consider monthly ranges, from first to last day of each month
             # print(self.getTempData())
             
-            time_ranges = list(map(lambda x: (datetime.datetime.strptime('01'+x.strftime('%m%Y'), '%d%m%Y').date(),
-                            datetime.datetime.strptime(str(monthrange(x.year, x.month)[1])+x.strftime('%m%Y'), '%d%m%Y').date()), self.getTempData().itervalues().next()))
+            time_ranges = list([(datetime.datetime.strptime('01'+x.strftime('%m%Y'), '%d%m%Y').date(),
+                            datetime.datetime.strptime(str(monthrange(x.year, x.month)[1])+x.strftime('%m%Y'), '%d%m%Y').date()) for x in next(iter(self.getTempData().values()))])
             
             # Iterate over unique date ranges (i.e. per month)            
             for time_range in set(list(time_ranges)):
@@ -165,7 +165,7 @@ class S1TempStack(eoTempStack):
                         x.name = band
                         xarrays.append(x)
                     except:
-                        print('{} band for S1 {} {} could not be processed'.format(band, self.orbit, month))
+                        print(('{} band for S1 {} {} could not be processed'.format(band, self.orbit, month)))
                 # Merge all bands in a single array
                 xa = xr.merge(xarrays)
                 # Drops unused bands
@@ -276,8 +276,8 @@ class opticalTempStack(eoTempStack):
         # Otherwise create
         try:
             # Calculate ranges of the available data. We consider monthly ranges, from first to last day of each month
-            time_ranges = list(map(lambda x: (datetime.datetime.strptime('01'+x.strftime('%m%Y'), '%d%m%Y').date(),
-                            datetime.datetime.strptime(str(monthrange(x.year, x.month)[1])+x.strftime('%m%Y'), '%d%m%Y').date()), self.getTempData().itervalues().next()))
+            time_ranges = list([(datetime.datetime.strptime('01'+x.strftime('%m%Y'), '%d%m%Y').date(),
+                            datetime.datetime.strptime(str(monthrange(x.year, x.month)[1])+x.strftime('%m%Y'), '%d%m%Y').date()) for x in next(iter(self.getTempData().values()))])
             
             # Iterate over unique date ranges (i.e. per month)            
             for time_range in set(list(time_ranges)):
@@ -286,7 +286,7 @@ class opticalTempStack(eoTempStack):
                 # Put arrays for each band in list
                 xarrays = []
                 # Retrieve all bands
-                for band in self.getBandsLoc().keys():
+                for band in list(self.getBandsLoc().keys()):
                     if self.prod_type == 'S2' and band in ['blue', 'green', 'red', 'nir', 'swir1', 'swir2']:
                         x = self.getBandXarray(band, time_range).isel(band=0).drop('wavelength').astype(np.uint16, copy=False)
                     elif self.prod_type in ['LE07', 'LC8'] and band in ['blue', 'green', 'red', 'nir', 'swir1', 'swir2']:
@@ -306,7 +306,7 @@ class opticalTempStack(eoTempStack):
                 
         except:
             e = sys.exc_info()
-            print('Stacking {} failed: {} {} {}'.format(self.prod_type, e[0], e[1], e[2]))
+            print(('Stacking {} failed: {} {} {}'.format(self.prod_type, e[0], e[1], e[2])))
 
 class S2TempStack(opticalTempStack):
     cloud_quality_limit = {'qa_cloud':9,'qa_class':[3]}     #quality_cloud_confidence>9, quality_scene_classification == 3
@@ -324,10 +324,10 @@ class S2TempStack(opticalTempStack):
             self.bands_loc[key] = bandloc
         else:
             ## Get names of files to stack in raster
-            prodlist = filter(re.compile(r'^S2.*data$').search, os.listdir(self.getSourceDir()))
+            prodlist = list(filter(re.compile(r'^S2.*data$').search, os.listdir(self.getSourceDir())))
             prodloclist = {}
             for band in self.bands_of_interest:
-                prodloclist[self.standard_band_dict[band]] = list(map(lambda x: self.getSourceDir()+x+'/'+band+'.img', prodlist))
+                prodloclist[self.standard_band_dict[band]] = list([self.getSourceDir()+x+'/'+band+'.img' for x in prodlist])
             self.bands_loc = prodloclist
         
     def setTempData(self, key=None, tempdata=None):
@@ -335,14 +335,14 @@ class S2TempStack(opticalTempStack):
             self.bands_temporal_range[key] = tempdata
         else:
             temp_range = {}
-            for key, value in self.getBandsLoc().iteritems():
+            for key, value in self.getBandsLoc().items():
                 try:
-                    temp_range[key] = list(map(lambda x: datetime.datetime.strptime(x.split('/')[-2][11:19], 
-                                                                                '%Y%m%d').date(),value))
+                    temp_range[key] = list([datetime.datetime.strptime(x.split('/')[-2][11:19], 
+                                                                                '%Y%m%d').date() for x in value])
                 except:
                     try:
-                        temp_range[key] = list(map(lambda x: datetime.datetime.strptime(x.split('/')[-2][47:55], 
-                                                                                '%Y%m%d').date(),value))
+                        temp_range[key] = list([datetime.datetime.strptime(x.split('/')[-2][47:55], 
+                                                                                '%Y%m%d').date() for x in value])
                     except ValueError:
                         raise Exception('The S2 L2A product does not follow naming conventions (dates %Y%m%d at 11:19 or 47:55).')
             self.bands_temporal_range = temp_range
@@ -365,11 +365,10 @@ class L8TempStack(opticalTempStack):
             self.bands_loc[key] = bandloc
         else:
             ## Get names of files to stack in raster
-            prodlist = filter(re.compile(r'^LC08.*[0-9]$').search, os.listdir(self.getSourceDir()))
+            prodlist = list(filter(re.compile(r'^LC08.*[0-9]$').search, os.listdir(self.getSourceDir())))
             prodloclist = {}
             for band in self.bands_of_interest:
-                prodloclist[self.standard_band_dict[band]] = list(map(lambda x: self.getSourceDir()+x+'/'+band+'.tif',
-                                                                 prodlist))
+                prodloclist[self.standard_band_dict[band]] = list([self.getSourceDir()+x+'/'+band+'.tif' for x in prodlist])
             self.bands_loc = prodloclist
         
     def setTempData(self, key=None, tempdata=None):
@@ -377,9 +376,9 @@ class L8TempStack(opticalTempStack):
             self.bands_temporal_range[key] = tempdata
         else:
             temp_range = {}
-            for key, value in self.getBandsLoc().iteritems():
-                temp_range[key] = list(map(lambda x: datetime.datetime.strptime(x.split('/')[-2][10:18], 
-                                                                                '%Y%m%d').date(),value))
+            for key, value in self.getBandsLoc().items():
+                temp_range[key] = list([datetime.datetime.strptime(x.split('/')[-2][10:18], 
+                                                                                '%Y%m%d').date() for x in value])
             self.bands_temporal_range = temp_range
 
 
@@ -401,11 +400,10 @@ class L7TempStack(opticalTempStack):
             self.bands_loc[key] = bandloc
         else:
             ## Get names of files to stack in raster
-            prodlist = filter(re.compile(r'^LE07.*[0-9]$').search, os.listdir(self.getSourceDir()))
+            prodlist = list(filter(re.compile(r'^LE07.*[0-9]$').search, os.listdir(self.getSourceDir())))
             prodloclist = {}
             for band in self.bands_of_interest:
-                prodloclist[self.standard_band_dict[band]] = list(map(lambda x: self.getSourceDir()+x+'/'+band+'.tif',
-                                                                 prodlist))
+                prodloclist[self.standard_band_dict[band]] = list([self.getSourceDir()+x+'/'+band+'.tif' for x in prodlist])
             self.bands_loc = prodloclist
         
     def setTempData(self, key=None, tempdata=None):
@@ -413,9 +411,9 @@ class L7TempStack(opticalTempStack):
             self.bands_temporal_range[key] = tempdata
         else:
             temp_range = {}
-            for key, value in self.getBandsLoc().iteritems():
-                temp_range[key] = list(map(lambda x: datetime.datetime.strptime(x.split('/')[-2][10:18], 
-                                                                                '%Y%m%d').date(),value))
+            for key, value in self.getBandsLoc().items():
+                temp_range[key] = list([datetime.datetime.strptime(x.split('/')[-2][10:18], 
+                                                                                '%Y%m%d').date() for x in value])
             self.bands_temporal_range = temp_range
         
 def check_dir(directory):
@@ -426,3 +424,4 @@ def check_dir(directory):
         return directory+'/'
     else:
         return directory
+    
