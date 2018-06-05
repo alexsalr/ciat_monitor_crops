@@ -10,13 +10,15 @@ import re
 import shutil
 import rasterio
 import dask
+import datetime
 
 import xarray as xr
 import numpy as np
 import pandas as pd
 import geopandas as gpd
-
 import eotempstack as eots
+
+from calendar import monthrange
 
 #from affine import Affine
 
@@ -44,15 +46,15 @@ class regionStack(object):
         self.data_directory = os.environ[dataserver]+self.region_name+'/'
     
         #Loads all available products as dask arrays
-        self.s1ASC = self.__setDataset('S1',orbit='ASCENDING')
+        self.S1_ASCENDING = self.__setDataset('S1',orbit='ASCENDING')
         
-        self.s1DSC = self.__setDataset('S1',orbit='DESCENDING')
+        self.S1_DESCENDING = self.__setDataset('S1',orbit='DESCENDING')
         
-        self.s2 = self.__setDataset('S2')
+        self.S2 = self.__setDataset('S2')
         
-        self.l7 = self.__setDataset('LE07')
+        self.LE07 = self.__setDataset('LE07')
         
-        self.l8 = self.__setDataset('LC08')
+        self.LC08 = self.__setDataset('LC08')
         
     def __setDataset(self, prodtype, orbit=None):
         """
@@ -191,77 +193,116 @@ class regionStack(object):
         else:
             raster_to_read = ['train']
         
+        if not os.path.isfile(out_dir+'class.nc'):
+            print('Attempting {} class dataset creation'.format(raster_to_read))
+            self.__mergeTrainingClasses(out_dir,class_dates,raster_to_read)
+            
+        #### WRITE FILES #### TODO
         
-        print('Attempting {} class dataset creation'.format(raster_to_read))
-        mergedds = self.__mergeTrainingClasses(out_dir,
-                                               class_dates, 
-                                               raster_to_read, 
-                                               subbands = ['NDVI','LSWI','red',
-                                                           'green','blue','nir',
-                                                           'swir1','swir2'])
+        #delayed_obj = mergedds.to_netcdf(out_dir+'optical_dataset.nc')
         
-        #### DO ALL TRANSFORMATION NEEDED ####
-        
-        mergedds.to_netcdf(out_dir+'train_test_optical.nc')
+        #from dask.diagnostics import ProgressBar
+        #with ProgressBar():
+        #    results = delayed_obj.compute()
         
         #writeParquetDataset(mergedds, out_dir, raster_to_read)
         
         # Try to read
-        # self.__readTrainingDataset(out_dir, 'train')
+        self.__readTrainingDataset(out_dir)
     
-    def __readTrainingDataset(self, outdir, eods):
+    def calcTempVariation(self, ds_type, bands):
+        """Calculate slope of the specified bands between two dates"""
+        
+        # Get the reference to the dataset
+        dataset = getattr(self, ds_type).sortby('time')
+        # Reconstruct the name of the file using methods in eotempstack class
+        
+        # Empty list to store new band names
+        new_bands = []
+        # Append new bands to dataset
+        for band in bands:
+            # Make first date of nan
+            first_date = np.empty(dataset[band].sortby('time').isel(time=0).shape)
+            first_date[:] = np.nan
+            # List to append values by date
+            c_arrays = [first_date]
+            # Process all dates for a band
+            for idx, time in enumerate(dataset.time[1:].values):
+                print('Processing band {} for date {}'.format(band,time))
+                # Calculate temporal trend
+                c_arrays.append(calcTempTrend(dataset,band,ndate=-idx-1))
+            # Stack all dates in np array    
+            c = np.stack(c_arrays,axis=2)
+            # Merge with xr dataset
+            dataset[band+'_c'] = (['y','x','time'],c)
+            # Append to new bands list
+            new_bands.append(band+'_c')
+        
+        # Calculate monthly time ranges for each date
+        time_ranges = list(map(lambda x: getMonthRange(x), dataset.time.values))
+        # Iterate unique time ranges
+        for time_range in set(list(time_ranges)):
+            # Format month
+            month = time_range[0].strftime('%Y%m')
+            # Select bands and time range
+            xa = dataset[new_bands].transpose('time','y','x').sel(time=slice(time_range[0], time_range[1]))
+            # Write to file
+            xa.to_netcdf(self.data_directory+'stack/'+ds_type+'_'+month+'c.nc')
+            
+    
+    def __readTrainingDataset(self, outdir):
         
         try:
-            tds = xr.open_mfdataset(outdir+eods+'.nc',chunks={'time':1})
+            cds = xr.open_mfdataset(outdir+'class.nc',chunks={'time':1})
             
-            try:
-                tds['mask'] = tds.mask.astype(bool)
-            except:
-                pass
+            print('Adding dataset with classes as class_ds attribute of regionStack')
             
-            print(('Adding dataset with classes as {} attribute of regionStack'.format(eods)))
-            
-            setattr(self, eods, tds)
+            setattr(self, 'class_ds', cds)
         except:
-            print('{} netcdf dataset could not be read'.format(eods))
+            print('Class netcdf dataset could not be read')
         
     
 
     
     def __mergeTrainingClasses(self, outdir, classdates, raster_to_read,
-                               subbands = ['NDVI','LSWI'], maxcloudcover = 0.2):
+                               maxcloudcover = 0.2):
         """
         Merge optical dates with max cloud cover and assigns closest radar dates
         """
         
-        opt_bands = subbands
-        
-        optical_dataset = xr.merge([getattr(self, 's2')[opt_bands],
-                                    getattr(self, 'l7')[opt_bands],
-                                    getattr(self, 'l8')[opt_bands]])
+        #dataset = getattr(self, ds_type)
         
         # Read all dates with class data
         time = xr.Variable('time', pd.DatetimeIndex([pd.Timestamp(f) for f in
                                                      classdates]))
         
         # Extract the intersect dates
-        intersect_dates = np.intersect1d(time.values,
-                                         optical_dataset.time.values)
+        #intersect_dates = np.intersect1d(time.values,
+        #                                 dataset.time.values)
         
-        final_dates = chooseBestQuality(optical_dataset, intersect_dates,
-                                        maxcloudcover=maxcloudcover)
+        #if ds_type in ['S2','LE07','LC08']:
+        #    intersect_dates = chooseBestQuality(dataset, intersect_dates, maxcloudcover=maxcloudcover)
         
-        #radar_dataset = self.assignAproxRadar(optical_dataset.sel(time=final_dates))
         d_merge = []
         
         for raster in raster_to_read:
-            d_merge.append(readClassArray(outdir, final_dates,raster))
+            d_merge.append(readClassArray(outdir,classdates,raster))
         
-        merged_ds = xr.merge([optical_dataset.sel(time=final_dates)]+d_merge)
+        dataset = xr.merge(d_merge)
         
-        merged_ds = calcTempVariation(merged_ds.transpose('time','x','y'), bands=subbands)
+        #time_ranges = list(map(lambda x: getMonthRange(x), intersect_dates))
+        #print(time_ranges)
+        #print(dataset.time.values)
         
-        return merged_ds.chunk({'time':1, 'x':1000, 'y':1000})
+        #for time_range in set(list(time_ranges)):
+        #    
+        #    month = time_range[0].strftime('%Y%m')
+        #    
+        xa = dataset[raster_to_read].transpose('time','y','x').sortby('time')#.sel(time=slice(time_range[0], time_range[1]))
+        #
+        xa.to_netcdf(outdir+'class.nc')
+        
+        #return intersect_dates
         
     def assignAproxRadar(self, optical_dataset):
         """"""
@@ -311,29 +352,6 @@ def writeParquetDataset(dataset, datadir, classsets):
         print('Writing {} parquet dataset to {}'.format(classn, file_location))
         dask.dataframe.to_parquet(data_values, file_location)
         
-        
-        
-    #return ds_location
-    
-def calcTempVariation(dataset, bands):
-    """Calculate slope of the specified bands between two dates"""
-    for band in bands:
-        # Make first date of nan
-        first_date = np.empty(dataset[band].sortby('time').isel(time=0).shape)
-        first_date[:] = np.nan
-        # List to append values by date
-        c_arrays = [first_date]
-        # Process all dates for a band
-        for idx, time in enumerate(dataset.time[1:].values):
-            print('Processing band {} for date {}'.format(band,time))
-            # Calculate temporal trend
-            c_arrays.append(calcTempTrend(dataset,band,ndate=-idx-1))
-            
-        c = np.stack(c_arrays,axis=2)
-        
-        dataset[band+'_c'] = (['x','y','time'],c)
-        
-    return dataset#.transpose('time','x','y')
 
 def calcTempTrend(dataset, band, ndate=-1, tempwindowsize=1):
     """
@@ -396,14 +414,14 @@ def readClassArray(outdir, dates, classtag):
     """
     @params
         outdir (str): location of the rasterized images
-        dates ([np.datetime64]): list of dates of dates of the raster
+        dates ([str]): list of dates of dates of the raster in format %Y%m%d
         classtag (str): tag of the rasterized image name
     """
-    classdates = list([str(t)[:4]+str(t)[5:7]+str(t)[8:10] for t in dates])
+    classdates = dates #list([str(t)[:4]+str(t)[5:7]+str(t)[8:10] for t in dates]) ##  this was for np.datetime64
     arlist = [xr.open_rasterio(f) for f in list([outdir+'class_'+x+classtag+
               '.tif' for x in classdates])]
     time = xr.Variable('time', pd.DatetimeIndex([pd.Timestamp(f) for f in dates]))
-    data_array = xr.concat(arlist, dim=time).isel(band=0).drop('band').transpose('time','x','y')#.values
+    data_array = xr.concat(arlist, dim=time).isel(band=0).drop('band').transpose('time','y','x')#.values
     
     data_array.name = classtag
     
@@ -488,7 +506,7 @@ def rasterizeClassdf (geopandasdf, referencefile, location, classtag = ''):
     meta = rst.meta.copy()
     meta.update(compress='lzw', dtype=rasterio.float64)
     
-    phc_dates = []
+    class_dates = []
     
     for column in geopandasdf:
         if geopandasdf[column].name[0] == 'X':
@@ -498,7 +516,7 @@ def rasterizeClassdf (geopandasdf, referencefile, location, classtag = ''):
             
             out_file = location+'class_'+date+classtag+'.tif'
             
-            phc_dates.append(date)
+            class_dates.append(date)
             
             if not os.path.isfile(out_file):
                 with rasterio.open(out_file, 'w', **meta) as out:
@@ -512,6 +530,13 @@ def rasterizeClassdf (geopandasdf, referencefile, location, classtag = ''):
                     out.write_band(1, burned.astype(rasterio.float64))
     
     # Return a list of dates
-    return phc_dates
+    return class_dates
     
+def getMonthRange(date):
+    """"""
+    x = pd.to_datetime(str(date))
+    first_date = datetime.datetime.strptime('01'+x.strftime('%m%Y'), '%d%m%Y').date()
+    last_date = datetime.datetime.strptime(str(monthrange(x.year, x.month)[1])+x.strftime('%m%Y'), '%d%m%Y').date()
+    
+    return (first_date, last_date)
     
