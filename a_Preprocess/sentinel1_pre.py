@@ -32,7 +32,7 @@ def pre_process_s1(data_dir, out_dir, orbit, area_of_int=None, ref_raster=None, 
         params_dict = dict(data_dir = data_dir, out_dir=out_dir, orbit=orbit, area_of_int=area_of_int, ref_raster = ref_raster, polarizations = polarizations, write_int = write_int, bkey = bkey, batch = batch)
         batch_json = json.dumps(params_dict)
         
-        subprocess.call(['python', 'sentinel1_pre_sub.py', batch_json])
+        subprocess.call(['python', 'a_Preprocess/sentinel1_pre_sub.py', batch_json])
 
 def make_batches_gen(l, n):
     """Generator approach / TODO test"""

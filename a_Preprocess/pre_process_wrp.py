@@ -82,13 +82,13 @@ def pre_process_region(region, prods, download=False, start_date=None, end_date=
                 pre_process_s2(data_dir, out_dir, area_of_int)
             
         elif prod in ['LE07','LC08']:
-            #
+            # Uncompress files
             uncompress_files(data_dir)
             
             # Try again TODO make code not to break if not read
             ref_raster_img = read_ref_raster(region, data_server)[:-3]+'data/B1.img'
             
-            #
+            # Crop and resample landsat images
             pre_landsat_batch(data_dir, out_dir, ref_raster_img)
             
             
@@ -106,7 +106,7 @@ def pre_process_s1_by_orbit(data_dir, out_dir, area_of_int=None, ref_raster=None
         shutil.move(data_dir+product[:-4]+'zip',check_dir(data_dir+orbits[idx]+'/'))
     
     # Process individually each directory
-    for orbit in ['ASCENDING', 'DESCENDING']:
+    for orbit in ['DESCENDING', 'ASCENDING']:
         data_dir_orbit = data_dir + orbit + '/'
         out_dir_orbit = check_dir(out_dir)# + orbit + '/')
         try:
@@ -178,10 +178,10 @@ def read_ref_raster(region, data_server):
         # Get any s2 product available
         prdlist = filter(re.compile(r'^S2.*L1C.*SAFE$').search, os.listdir(set_data_dir(region, 'S2', data_server)))
         first_product = prdlist[0]
-        #reader = filter(re.compile(r'MTD_.*xml$').search, os.listdir(set_data_dir(region, 'S2')+get_first_product))
-        #print(get_first_product+'/'+reader)
+        
         # Read reference product
-        ref_product = ProductIO.readProduct(set_data_dir(region, 'S2', data_server)+first_product)#+'/'+reader)
+        ref_product = ProductIO.readProduct(set_data_dir(region, 'S2', data_server)+first_product)
+        
         # Resample all bands to 10m resolution
         resample_subset = HashMap()
         resample_subset.put('targetResolution', 10)
@@ -235,7 +235,7 @@ def uncompress_files(eo_dir, unzip_dir = None):
     eo_tar_files = list(map(lambda x: (unzip_direc, eo_dir, x), eo_tar_files))
     
     parmap.starmap(unzip_eo, eo_zip_files)
-    parmap.starmap(untar_eo, eo_tar_files)# (eo_zip_files-->(unzipdirec, im_id is each element of eo_tar/zip/files)
+    parmap.starmap(untar_eo, eo_tar_files)
 
 def unzip_eo(unzip_direc, eo_dir, im_id):
     ## Unzip only if a folder with the same name does not exist
