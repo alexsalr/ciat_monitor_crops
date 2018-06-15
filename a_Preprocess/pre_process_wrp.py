@@ -106,7 +106,7 @@ def pre_process_s1_by_orbit(data_dir, out_dir, area_of_int=None, ref_raster=None
         shutil.move(data_dir+product[:-4]+'zip',check_dir(data_dir+orbits[idx]+'/'))
     
     # Process individually each directory
-    for orbit in ['DESCENDING', 'ASCENDING']:
+    for orbit in ['ASCENDING', 'DESCENDING']:
         data_dir_orbit = data_dir + orbit + '/'
         out_dir_orbit = check_dir(out_dir)# + orbit + '/')
         try:
