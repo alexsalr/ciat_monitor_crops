@@ -23,8 +23,8 @@ def pre_process_s1(data_dir, out_dir, orbit, area_of_int=None, ref_raster=None, 
         polarizations ([str]): strings of polarizations to consider in processing chain
     """
     print('Pre-processing Sentinel-1 images...')
-    #batches = make_batches(sorted(filter(re.compile(r'^S1.....GRD.*SAFE$').search, os.listdir(data_dir))))
-    batches = make_batches(sorted(filter(re.compile(r'^S1.....GRD.*SAFE$').search, os.listdir(data_dir))), 8)
+    # Make batches using a pair number 
+    batches = make_batches(sorted(filter(re.compile(r'^S1.....GRD.*SAFE$').search, os.listdir(data_dir))), 2)
     
     print('Processing {} batches from {}. Results will be saved in {}'.format(str(len(batches)), data_dir, out_dir))
     
@@ -32,6 +32,7 @@ def pre_process_s1(data_dir, out_dir, orbit, area_of_int=None, ref_raster=None, 
         params_dict = dict(data_dir = data_dir, out_dir=out_dir, orbit=orbit, area_of_int=area_of_int, ref_raster = ref_raster, polarizations = polarizations, write_int = write_int, bkey = bkey, batch = batch)
         batch_json = json.dumps(params_dict)
         
+        # Pre process first stage of all available files
         subprocess.call(['python', 'a_Preprocess/sentinel1_pre_sub.py', batch_json])
 
 def make_batches_gen(l, n):

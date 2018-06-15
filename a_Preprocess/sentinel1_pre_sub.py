@@ -9,9 +9,9 @@ from snappy import ProductIO, GPF, jpy #, HashMap, GPF, jpy
 from snappy import HashMap as hashp
 
 ##test this
-PrintPM = jpy.get_type('com.bc.ceres.core.PrintWriterProgressMonitor')
+#PrintPM = jpy.get_type('com.bc.ceres.core.PrintWriterProgressMonitor')
 # or a more concise implementation
-#ConcisePM = jpy.get_type('com.bc.ceres.core.PrintWriterConciseProgressMonitor')
+ConcisePM = jpy.get_type('com.bc.ceres.core.PrintWriterConciseProgressMonitor')
 System = jpy.get_type('java.lang.System')
 
 
@@ -114,10 +114,10 @@ def write_product (product, out_name):
         product (): product to be written
         out_name (str): name/location of the output file
     """
-    pm = PrintPM(System.out)
+    pm = ConcisePM(System.out)
     
     print('Writing {}, with bands: {}.'.format(out_name, getBandNames(product)))
-    ProductIO.writeProduct(product, out_name, 'BEAM-DIMAP', pm)#, pm = createProgressMonitor())
+    ProductIO.writeProduct(product, out_name, 'BEAM-DIMAP', pm)
 
 def collocateToRef(product, ref_raster):
         if ref_raster is not None:
@@ -129,8 +129,8 @@ def collocateToRef(product, ref_raster):
         else:
             print('No reference raster was provided')
             return None
-# area_of_int, write_int, out_dir, ref_raster
-def process_date (prod_list, out_dir, orbit, area_of_int, ref_raster, polarizations, write_int):
+
+def process_date (prod_list, out_dir, orbit, area_of_int, ref_raster, polarizations):
     """products is a list of products of the same orbit (ASCENDING/DESCENDING) and date (STATE_VECTOR_TIME[0:11]). Returns product subset for a given polarizaton"""
     if len(prod_list) > 1:
         # 0 Slice assembly
@@ -175,13 +175,13 @@ def process_date (prod_list, out_dir, orbit, area_of_int, ref_raster, polarizati
         product = GPF.createProduct("Subset", param, product)
     
     # Write GLCM textures
-    write_product(collocateToRef(GLCM_Textures(product), ref_raster), out_dir+'S1_'+orbit+'_GLCM_'+product.getName()[24:32])
+    #write_product(collocateToRef(GLCM_Textures(product), ref_raster), out_dir+'S1_'+orbit+'_GLCM_'+product.getName()[24:32])
     
     # Write intermediate products
-    if write_int == True:
-        write_product(product, out_dir+orbit+'_GLCM_'+product.getName()[24:32])
+    #if write_int == True:
+    write_product(product, out_dir+'S1_'+orbit+'_'+product.getName()[24:32]+'_')
     
-    return product
+    #return product
 
 def main(data_dir, out_dir, orbit, area_of_int, ref_raster, polarizations, write_int, bkey, batch):
     
@@ -211,16 +211,18 @@ def main(data_dir, out_dir, orbit, area_of_int, ref_raster, polarizations, write
                 dates[date].append(batch[batch.keys()[idx]]['S1GRD'])
         
         # Process each date
-        inter_prods.append(process_date(dates[date], out_dir, orbit, area_of_int, ref_raster, polarizations, write_int))#, ('outname', out_dir+'S1_'+orbit+'_'+date)]))
+        #inter_prods.append(process_date(dates[date], out_dir, orbit, area_of_int, ref_raster, polarizations, write_int))#, ('outname', out_dir+'S1_'+orbit+'_'+date)]))
+        
+        process_date(dates[date], out_dir, orbit, area_of_int, ref_raster, polarizations)
     
     ## Make stack of polarizations, apply mt speckle filter, log transform and write
-    
-    stack = stacking(inter_prods)
-    
-    for pol in polarizations:
-        output_name = out_dir + 'S1_' + orbit + '_' + pol + '_P' + datetime.datetime.now().strftime("%Y%m%d") + '_' + str(bkey)
-        # stack, apply multi-temporal speckle filter and logaritmic transform
-        write_product(Sigma0_todB(collocateToRef(mtspeckle_sigma0(stack, pol),ref_raster)), output_name)
+    #
+    #stack = stacking(inter_prods)
+    #
+    #for pol in polarizations:
+    #    output_name = out_dir + 'S1_' + orbit + '_' + pol + '_P' + datetime.datetime.now().strftime("%Y%m%d") + '_' + str(bkey)
+    #    # stack, apply multi-temporal speckle filter and logaritmic transform
+    #    write_product(Sigma0_todB(collocateToRef(mtspeckle_sigma0(stack, pol),ref_raster)), output_name)
 
 if __name__ == '__main__':
     
