@@ -35,8 +35,9 @@ cd sen2cor
 curl -O http://step.esa.int/thirdparties/sen2cor/2.5.5/Sen2Cor-02.05.05-Linux64.run
 bash Sen2Cor-02.05.05-Linux64.run
 
-## Install sentinelsat
+## Install sentinelsat and parmap
 pip install sentinelsat
+conda install -c marufr parmap
 
 ## Deactivate conda environment
 source deactivate
@@ -78,5 +79,3 @@ echo "export WIN_SVR_DATA='/mnt/workspace_cluster_6/TRANSVERSAL_PROJECTS/MADR/CO
 echo "export LOCAL_DATA='/home/azalazar/data/'" >> ~/.bashrc 
 
 source ~/.bashrc
-
-

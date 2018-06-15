@@ -5,130 +5,14 @@ Created on Wed May 16 10:10:44 2018
 @author: ASALAZAR
 """
 import re, sys, datetime, json
-from snappy import ProductIO, GPF, jpy #, HashMap, GPF, jpy
+from snappy import ProductIO, GPF, jpy
 from snappy import HashMap as hashp
 
-##test this
-#PrintPM = jpy.get_type('com.bc.ceres.core.PrintWriterProgressMonitor')
-# or a more concise implementation
 ConcisePM = jpy.get_type('com.bc.ceres.core.PrintWriterConciseProgressMonitor')
 System = jpy.get_type('java.lang.System')
 
-
-def getBandNames (product, sfilter = ''):
-    """
-    Produces a string to use in the sourceBandNames parameter specification of SNAP operators.
-    Args:
-        product (SNAP product): the product to get band names of
-        sfilter (string): regular expression to filter the name of the bands
-    Output:
-        returns a string with comma-separated band names
-    """
-    band_names = product.getBandNames()
-    if sfilter != '':
-        band_names = filter(re.compile(r''+sfilter).search, band_names)
-    if len(band_names) > 0:
-        band_names = ','.join(band_names)
-    else:
-        band_names = None
-    return band_names
-
-def GLCM_Textures(product):
-    
-    params = hashp()
-    
-    params.put('sourceBandNames', getBandNames(product, "Sigma0_"))
-    params.put('windowSizeStr', '5x5')
-    params.put('quantizerStr', 'Probabilistic Quantizer')
-    params.put('quantizationLevelsStr', '16')
-    params.put('displacement','4' )
-    params.put('outputContrast','true')
-    params.put('outputDissimilarity','true')
-    params.put('outputHomogeneity','true')
-    params.put('outputASM','true')
-    params.put('outputEnergy','true')
-    params.put('outputMean','true')
-    params.put('outputVariance','true')
-    params.put('outputCorrelation','true')
-    
-    return GPF.createProduct("GLCM", params, product)
-
-def stacking(product_set):
-    """
-    Takes a list of SNAP products and returns a stacked product with all the bands named with
-    the products acquisition dates.
-    Args:
-        product_set: a list of products to be stacked
-        ref_raster (str): location of a raster product with same extent and target resolution.
-    Output: returns an individual product with the bands of the other products 
-    """
-    # check if products contain any bands, discard when not
-    prod_set = [product for product in product_set if not product.getNumBands() == 0]
-    
-    # define the stack parameters
-    params = hashp()#HashMap()
-    params.put('resamplingType', 'NEAREST_NEIGHBOUR')
-    params.put('initialOffsetMethod', 'Product Geolocation')
-    params.put('extent', 'Master')
-    
-    # create the stack
-    print("Creating stack of {} products...".format(str(len(prod_set))))
-    create_stack = GPF.createProduct('CreateStack', params, prod_set)
-    return create_stack
-
-def mtspeckle_sigma0 (stacked_prod, pol):
-    """
-    Applies the a multi-temporal speckle filter to the a corregistered calibrated product stack. Takes the product bands
-    which name starts with 'Sigma0'.
-    
-    Args:
-        stacked_prod (): product with all the bands to be used for the multi-temporal speckle filter operation
-        pol (str): polarization to apply the speckle filter (VV or VH)
-    Output:
-    """
-    param_specklefilter = hashp()#HashMap()
-    param_specklefilter.put('sourceBandNames', getBandNames(stacked_prod, "Sigma0_"+pol))
-    param_specklefilter.put('filter', 'Lee Sigma')
-    sf_product = GPF.createProduct("Multi-Temporal-Speckle-Filter", param_specklefilter, stacked_prod)
-    return sf_product
-
-def Sigma0_todB (product):
-    """
-    Transforms the product bands to a logaritmic scale in dB (10*log10[band]).
-    
-    Args:
-        product: product with Sigma0 bands in linear units
-    Output:
-    """
-    param_logdB = hashp()#HashMap()
-    param_logdB.put('sourceBandNames', getBandNames(product, 'Sigma0_'))
-    db_product = GPF.createProduct("LinearToFromdB", param_logdB, product)
-    return db_product
-
-def write_product (product, out_name):
-    """
-    Writes a GDF product in BEAM-DIMAP format (.dim). Prints informative text with product name and
-    names of the bands.
-    
-    Args:
-        product (): product to be written
-        out_name (str): name/location of the output file
-    """
-    pm = ConcisePM(System.out)
-    
-    print('Writing {}, with bands: {}.'.format(out_name, getBandNames(product)))
-    ProductIO.writeProduct(product, out_name, 'BEAM-DIMAP', pm)
-
-def collocateToRef(product, ref_raster):
-        if ref_raster is not None:
-            cparams = hashp()#HashMap()
-            sourceProducts = hashp()#HashMap()
-            sourceProducts.put("master", ProductIO.readProduct(ref_raster))
-            sourceProducts.put("slave", product)
-            return GPF.createProduct('Collocate', cparams, sourceProducts)
-        else:
-            print('No reference raster was provided')
-            return None
+from sentinel1_pre_utils import getBandNames
+from sentinel1_pre_utils import write_product
 
 def process_date (prod_list, out_dir, orbit, area_of_int, ref_raster, polarizations):
     """products is a list of products of the same orbit (ASCENDING/DESCENDING) and date (STATE_VECTOR_TIME[0:11]). Returns product subset for a given polarizaton"""
@@ -174,14 +58,10 @@ def process_date (prod_list, out_dir, orbit, area_of_int, ref_raster, polarizati
         
         product = GPF.createProduct("Subset", param, product)
     
-    # Write GLCM textures
-    #write_product(collocateToRef(GLCM_Textures(product), ref_raster), out_dir+'S1_'+orbit+'_GLCM_'+product.getName()[24:32])
+    out_name = out_dir+'S1_'+orbit+'_'+product.getName()[24:32]+'_'
     
-    # Write intermediate products
-    #if write_int == True:
-    write_product(product, out_dir+'S1_'+orbit+'_'+product.getName()[24:32]+'_')
+    write_product(product, out_name, ConcisePM(System.out))
     
-    #return product
 
 def main(data_dir, out_dir, orbit, area_of_int, ref_raster, polarizations, write_int, bkey, batch):
     
@@ -211,18 +91,7 @@ def main(data_dir, out_dir, orbit, area_of_int, ref_raster, polarizations, write
                 dates[date].append(batch[batch.keys()[idx]]['S1GRD'])
         
         # Process each date
-        #inter_prods.append(process_date(dates[date], out_dir, orbit, area_of_int, ref_raster, polarizations, write_int))#, ('outname', out_dir+'S1_'+orbit+'_'+date)]))
-        
         process_date(dates[date], out_dir, orbit, area_of_int, ref_raster, polarizations)
-    
-    ## Make stack of polarizations, apply mt speckle filter, log transform and write
-    #
-    #stack = stacking(inter_prods)
-    #
-    #for pol in polarizations:
-    #    output_name = out_dir + 'S1_' + orbit + '_' + pol + '_P' + datetime.datetime.now().strftime("%Y%m%d") + '_' + str(bkey)
-    #    # stack, apply multi-temporal speckle filter and logaritmic transform
-    #    write_product(Sigma0_todB(collocateToRef(mtspeckle_sigma0(stack, pol),ref_raster)), output_name)
 
 if __name__ == '__main__':
     

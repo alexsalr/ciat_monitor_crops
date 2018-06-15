@@ -28,13 +28,40 @@ def pre_process_s1(data_dir, out_dir, orbit, area_of_int=None, ref_raster=None, 
     
     print('Processing {} batches from {}. Results will be saved in {}'.format(str(len(batches)), data_dir, out_dir))
     
+    # First stage of subprocessing, individual dates
     for bkey, batch in batches.iteritems():
         params_dict = dict(data_dir = data_dir, out_dir=out_dir, orbit=orbit, area_of_int=area_of_int, ref_raster = ref_raster, polarizations = polarizations, write_int = write_int, bkey = bkey, batch = batch)
         batch_json = json.dumps(params_dict)
         
         # Pre process first stage of all available files
         subprocess.call(['python', 'a_Preprocess/sentinel1_pre_sub.py', batch_json])
-
+    
+    ## Retrieve intermediate results
+    int_s1 = filter(re.compile(r'^S1_'+orbit+'.*dim$').search, os.listdir(out_dir))
+    
+    ## Process texture
+    print('Processing GLCM texture of {} Sentinel-1 dates. Results will be saved in {}'.format(str(len(int_s1)), data_dir, out_dir))
+    
+    for product_name in int_s1:
+        
+        params_dict = dict(data_dir = data_dir, out_dir=out_dir, orbit=orbit, ref_raster = ref_raster, product_name = product_name)
+        batch_json = json.dumps(params_dict)
+        
+        subprocess.call(['python', 'a_Preprocess/sentinel1_pre_txt.py', batch_json])
+    
+    ## Stack and speckle filter
+    print('Processing speckle filter of {} Sentinel-1 dates. Results will be saved in {}'.format(str(len(int_s1)), data_dir, out_dir))
+    
+    spk_batches = make_batches(int_s1, 10)
+    
+    for bkey, batch in spk_batches.iteritems():
+        params_dict = dict(data_dir = data_dir, out_dir=out_dir, orbit=orbit, area_of_int=area_of_int, ref_raster = ref_raster, polarizations = polarizations, write_int = write_int, bkey = bkey, batch = batch)
+        batch_json = json.dumps(params_dict)
+        
+        # Preprocess all
+        subprocess.call(['python', 'a_Preprocess/sentinel1_pre_spf.py', batch_json])
+    
+    
 def make_batches_gen(l, n):
     """Generator approach / TODO test"""
     for i in range(0, len(l), n):
