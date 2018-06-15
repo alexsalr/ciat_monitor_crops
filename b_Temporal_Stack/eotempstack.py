@@ -7,13 +7,13 @@ Module for constructing a multi-temporal earth observation dataset from pre-proc
 
 import os
 import re
-import datetime
 import sys
 import rasterio, dask
 import numpy as np
 import pandas as pd
 import xarray as xr
 
+from datetime import datetime as dt
 from calendar import monthrange
 
 #from rasterio.rio import stack
@@ -108,14 +108,14 @@ class eoTempStack(object):
 class S1TempStack(eoTempStack):
     bands_of_interest = ['VV', 'VH']
     
-    def __init__(self, sourcedir, outdir, orbit):
+    def __init__(self, sourcedir, outdir, orbit, prod_type = 'S1'):
         # Call eo_tempstack initialization method
         self.orbit = orbit
-        super(S1TempStack, self).__init__(sourcedir, outdir, 'S1')
+        super(S1TempStack, self).__init__(sourcedir, outdir, prod_type)
     
     def setBandsLoc(self):
         ## Get directory names of pre-processed S1 products to read
-        proddirs = list(filter(re.compile(r'S1_'+self.orbit+'.*data$').search, os.listdir(self.source_directory)))
+        proddirs = list(filter(re.compile(r'^S1_'+self.orbit+'.*data$').search, os.listdir(self.source_directory)))
         
         ## Declare dictionary to store file location by polarizations
         prodlist = {}
@@ -130,10 +130,11 @@ class S1TempStack(eoTempStack):
         ## Declare dictionary to store dates by polarization
         temp_range = {}
         for key, value in self.getBandsLoc().items():
-            temp_range[key] = list([datetime.datetime.strptime(x.split('/')[-1].split('_')[3],'%d%b%Y').date() for x in value])
+            temp_range[key] = list([dt.strptime(x.split('/')[-1].split('_')[3],'%d%b%Y').date() for x in value])
             # Store dictionary as instance variable
         self.bands_temporal_range = temp_range
     
+    #DEPRECATED
     #def getXarray(self):
     #    xarrays = []
     #    for band in self.bands_of_interest:
@@ -145,12 +146,11 @@ class S1TempStack(eoTempStack):
     #    return da
     
     def createXDataset(self):
-        #try:
+        try:
             # Calculate ranges of the available data. We consider monthly ranges, from first to last day of each month
-            # print(self.getTempData())
             
-            time_ranges = list([(datetime.datetime.strptime('01'+x.strftime('%m%Y'), '%d%m%Y').date(),
-                            datetime.datetime.strptime(str(monthrange(x.year, x.month)[1])+x.strftime('%m%Y'), '%d%m%Y').date()) for x in next(iter(self.getTempData().values()))])
+            time_ranges = list([(dt.strptime('01'+x.strftime('%m%Y'), '%d%m%Y').date(),
+                            dt.strptime(str(monthrange(x.year, x.month)[1])+x.strftime('%m%Y'), '%d%m%Y').date()) for x in next(iter(self.getTempData().values()))])
             
             # Iterate over unique date ranges (i.e. per month)            
             for time_range in set(list(time_ranges)):
@@ -173,10 +173,59 @@ class S1TempStack(eoTempStack):
                 # Write array as netcdf
                 xa.to_netcdf(self.out_directory+self.prod_type+'_'+self.orbit+'_'+month+'.nc')
                 
-        #except:
-        #    e = sys.exc_info()
-        #    print('Stacking {} failed: {} {} {}'.format(self.prod_type, e[0], e[1], e[2]))
+        except:
+            e = sys.exc_info()
+            print('Stacking {} failed: {} {} {}'.format(self.prod_type, e[0], e[1], e[2]))
 
+class S1TextureTempStack(S1TempStack):
+    bands_of_interest = ['VV_ASM',
+                         'VV_Contrast',
+                         'VV_Dissimilarity',
+                         'VV_Energy',
+                         'VV_Entropy',
+                         'VV_GLCMCorrelation',
+                         'VV_GLCMMean',
+                         'VV_GLCMVariance',
+                         'VV_Homogeneity',
+                         'VH_ASM',
+                         'VH_Contrast',
+                         'VH_Dissimilarity',
+                         'VH_Energy',
+                         'VH_Entropy',
+                         'VH_GLCMCorrelation',
+                         'VH_GLCMMean',
+                         'VH_GLCMVariance',
+                         'VH_Homogeneity',]
+    
+    # 'GLCM_S1_DESCENDING_20180410_'.
+    def __init__(self, sourcedir, outdir, orbit):
+        # Call eo_tempstack initialization method
+        self.orbit = orbit
+        super(S1TextureTempStack, self).__init__(sourcedir, outdir, orbit, 'GLCM_S1')
+        
+    def setBandsLoc(self):
+    
+        ## Get directory names of pre-processed S1 products to read
+        prodlist = list(filter(re.compile(r'^GLCM_S1_'+self.orbit+'.*data$').
+                               search, os.listdir(self.source_directory)))
+        
+        ## Get names of files to stack in raster
+        prodloclist = {}
+        for band in self.bands_of_interest:
+            prodloclist[band] = list([self.getSourceDir()+x+'/Sigma0_'+band+
+                       '_S.img' for x in prodlist])
+        
+        self.bands_loc = prodloclist
+        
+    def setTempData(self, key=None, tempdata=None):
+        temp_range = {}
+        
+        for key, value in self.getBandsLoc().items():
+            temp_range[key] = list([dt.strptime(x.split('/')[-2].split('_')[3],
+                      '%Y%m%d').date() for x in value])
+        
+        self.bands_temporal_range = temp_range
+        
 class opticalTempStack(eoTempStack):
     ## Init method to include indices calculation
     def __init__(self, sourcedir, outdir, prodtype):
@@ -254,6 +303,7 @@ class opticalTempStack(eoTempStack):
         xrmask = xr.ufuncs.logical_not(xr.ufuncs.logical_or(Q1, Q2))
         return xrmask.isel(band=0).drop('band')
     
+    #DEPRECATED
     #def getXarray(self):
     #    xarrays = []
     #    bandnames = []
@@ -269,15 +319,10 @@ class opticalTempStack(eoTempStack):
     #    return xa
     
     def createXDataset(self):
-        # TODO make possible to update when new eo images are obtained
-        # Check if dataset already exists
-        #if os.path.isfile(self.out_directory+self.prod_type+'.nc'):
-        #    ds = xr.open_dataset(self.out_directory+self.prod_type+'.nc', chunks={'time':1})
-        # Otherwise create
         try:
             # Calculate ranges of the available data. We consider monthly ranges, from first to last day of each month
-            time_ranges = list([(datetime.datetime.strptime('01'+x.strftime('%m%Y'), '%d%m%Y').date(),
-                            datetime.datetime.strptime(str(monthrange(x.year, x.month)[1])+x.strftime('%m%Y'), '%d%m%Y').date()) for x in next(iter(self.getTempData().values()))])
+            time_ranges = list([(dt.strptime('01'+x.strftime('%m%Y'), '%d%m%Y').date(),
+                            dt.strptime(str(monthrange(x.year, x.month)[1])+x.strftime('%m%Y'), '%d%m%Y').date()) for x in next(iter(self.getTempData().values()))])
             
             # Iterate over unique date ranges (i.e. per month)            
             for time_range in set(list(time_ranges)):
@@ -337,11 +382,11 @@ class S2TempStack(opticalTempStack):
             temp_range = {}
             for key, value in self.getBandsLoc().items():
                 try:
-                    temp_range[key] = list([datetime.datetime.strptime(x.split('/')[-2][11:19], 
+                    temp_range[key] = list([dt.strptime(x.split('/')[-2][11:19], 
                                                                                 '%Y%m%d').date() for x in value])
                 except:
                     try:
-                        temp_range[key] = list([datetime.datetime.strptime(x.split('/')[-2][47:55], 
+                        temp_range[key] = list([dt.strptime(x.split('/')[-2][47:55], 
                                                                                 '%Y%m%d').date() for x in value])
                     except ValueError:
                         raise Exception('The S2 L2A product does not follow naming conventions (dates %Y%m%d at 11:19 or 47:55).')
@@ -377,7 +422,7 @@ class L8TempStack(opticalTempStack):
         else:
             temp_range = {}
             for key, value in self.getBandsLoc().items():
-                temp_range[key] = list([datetime.datetime.strptime(x.split('/')[-2][10:18], 
+                temp_range[key] = list([dt.strptime(x.split('/')[-2][10:18], 
                                                                                 '%Y%m%d').date() for x in value])
             self.bands_temporal_range = temp_range
 
@@ -412,7 +457,7 @@ class L7TempStack(opticalTempStack):
         else:
             temp_range = {}
             for key, value in self.getBandsLoc().items():
-                temp_range[key] = list([datetime.datetime.strptime(x.split('/')[-2][10:18], 
+                temp_range[key] = list([dt.strptime(x.split('/')[-2][10:18], 
                                                                                 '%Y%m%d').date() for x in value])
             self.bands_temporal_range = temp_range
         

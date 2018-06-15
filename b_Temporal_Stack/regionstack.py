@@ -50,6 +50,10 @@ class regionStack(object):
         
         self.S1_DESCENDING = self.__setDataset('S1',orbit='DESCENDING')
         
+        self.S1_ASCENDING_GLCM = self.__setDataset('GLCM_S1',orbit='ASCENDING')
+        
+        self.S1_DESCENCDING_GLCM = self.__setDataset('GLCM_S1',orbit='DESCENDING')
+        
         self.S2 = self.__setDataset('S2')
         
         self.LE07 = self.__setDataset('LE07')
@@ -67,11 +71,11 @@ class regionStack(object):
             orbit (str): Sentinel-1 orbit, ASCENDING or DESCENDING
         """
         # Try to process new products, if available
-        try:
-            self.__createDataset(prodtype, orbit)
-        except:
-            print(('Creation of new {} stacks failed, reading existing stacks'
-                   .format(prodtype)))
+        #try:
+        self.__createDataset(prodtype, orbit)
+        #except:
+        #    print(('Creation of new {} stacks failed, reading existing stacks'
+        #           .format(prodtype)))
         
         # Try to read existing stacks
         try:
@@ -119,6 +123,10 @@ class regionStack(object):
             eots.L7TempStack(sourcedir, outdir).createXDataset()
         elif prodtype == 'LC08':
             eots.L8TempStack(sourcedir, outdir).createXDataset()
+        elif prodtype == 'GLCM_S1':
+            eots.S1TextureTempStack(sourcedir, outdir, orbit = orbit).createXDataset()
+        else:
+            raise NotImplementedError('Chosen product type is not implemented.')
         
         # Relocate files to avoid reprocessing
         if not os.path.exists(stackeddir):
