@@ -52,14 +52,14 @@ class regionStack(object):
         
         self.S1_ASCENDING_GLCM = self.__setDataset('GLCM_S1',orbit='ASCENDING')
         
-        self.S1_DESCENCDING_GLCM = self.__setDataset('GLCM_S1',orbit='DESCENDING')
+        self.S1_DESCENDING_GLCM = self.__setDataset('GLCM_S1',orbit='DESCENDING')
         
         self.S2 = self.__setDataset('S2')
         
         self.LE07 = self.__setDataset('LE07')
         
         self.LC08 = self.__setDataset('LC08')
-        
+    
     def __setDataset(self, prodtype, orbit=None):
         """
         Wrapper to access earth observation temporal stacks. Calls method to
@@ -71,18 +71,18 @@ class regionStack(object):
             orbit (str): Sentinel-1 orbit, ASCENDING or DESCENDING
         """
         # Try to process new products, if available
-        #try:
-        self.__createDataset(prodtype, orbit)
-        #except:
-        #    print(('Creation of new {} stacks failed, reading existing stacks'
-        #           .format(prodtype)))
+        try:
+            self.__createDataset(prodtype, orbit)
+        except:
+            print(('Creation of new {} stacks failed, reading existing stacks'
+                   .format(prodtype)))
         
         # Try to read existing stacks
         try:
             # Default directory of stacks
             datadir = self.data_directory+'stack/'
-            
-            # 
+        
+            # Lookup files to read and open xr.Dataset with dask
             if orbit is None:
                 files = list(filter(re.compile(r'^'+prodtype+'.*').search,
                                     os.listdir(datadir)))
@@ -94,7 +94,7 @@ class regionStack(object):
                   chunks={'time':1,'x':1000,'y':1000})
             return ds.sortby('time')
         except:
-            print(('No stacks available for {}'.format(prodtype)))
+            print(('No stacks available for {}, orbit {}'.format(prodtype, orbit)))
             return None
     
     def __createDataset(self, prodtype, orbit=None):
@@ -129,20 +129,24 @@ class regionStack(object):
             raise NotImplementedError('Chosen product type is not implemented.')
         
         # Relocate files to avoid reprocessing
+        
+        # create directory
         if not os.path.exists(stackeddir):
             os.makedirs(stackeddir)
             print(('New directory {} was created'.format(stackeddir)))
-        
+        # get files names
         if prodtype == 'S1':
+            files = list(filter(re.compile(r'^'+'S1_SPF'+'_'+orbit+'.*').
+                                search, os.listdir(sourcedir)))
+        elif prodtype == 'GLCM_S1':
             files = list(filter(re.compile(r'^'+prodtype+'_'+orbit+'.*').
                                 search, os.listdir(sourcedir)))
-            for f in files:
-                shutil.move(sourcedir+f, stackeddir)
         else:
             files = list(filter(re.compile(r'^'+prodtype+'.*').search,
                                 os.listdir(sourcedir)))
-            for f in files:
-                shutil.move(sourcedir+f, stackeddir)
+        # move files
+        for f in files:
+            shutil.move(sourcedir+f, stackeddir)
     
     
     ##########################################################################
@@ -313,10 +317,10 @@ class regionStack(object):
         #return intersect_dates
         
     def assignAproxRadar(self, optical_dataset):
-        """"""
+        """Assign the closest S1 dates using the dates in provided dataset"""
         orbits = []
-        for orbit in ['ASC', 'DSC']:
-            renamed = rename_variables(getattr(self, 's1'+orbit), orbit)
+        for orbit in ['ASCENDING', 'DESCENDING']:
+            renamed = rename_variables(getattr(self, 'S1_'+orbit), orbit)
             
             candidates = []
             
@@ -336,7 +340,29 @@ class regionStack(object):
             orbits.append(assig)
         
         return orbits[0].merge(orbits[1])
+    
+    def buildTrainingDataFrame(self, datadict, classsets=['train','test']):
+        """Build a training dataframe for the data and variables specified in datadict"""
         
+        try:
+            classds = getattr(self, 'class_ds')
+        except AttributeError:
+            print('No training dataset has been assigned')
+        
+        intersect_dates = np.array([], dtype=np.datetime64)
+        for key in datadict:
+            intersect_dates = np.append(intersect_dates, getattr(self, key).time.values)
+        #intersect_dates = np.array(list(set(intersect_dates)))
+        intersect_dates = np.intersect1d(classds.time.values, intersect_dates)
+        
+        dataset = []        
+        for key, bands in datadict.items():
+            dataset.append(getattr(self, key)[bands].sel(time=np.intersect1d(getattr(self, key).time.values, intersect_dates)))
+                
+        dataset = xr.merge(dataset+[classds.sel(time=intersect_dates)]).chunk({'time':1,'y':1000,'x':1000})
+        
+        writeParquetDataset(dataset, self.data_directory, classsets)    
+    
 def writeParquetDataset(dataset, datadir, classsets):
     """Write a parquet file of the dataset using a dask array to subset only
     values with class data.
@@ -350,15 +376,18 @@ def writeParquetDataset(dataset, datadir, classsets):
     
     ds_location = datadir+'parquet/'
     
-    data_pd = dataset.to_dask_dataframe()
-    
     for classn in classsets:
-        # Filter the values with class data
-        data_values = data_pd[data_pd[classn]>0]
-        file_location = ds_location+classn+'/'
-        # Write to parquet
-        print('Writing {} parquet dataset to {}'.format(classn, file_location))
-        dask.dataframe.to_parquet(data_values, file_location)
+        # Iterate individual dates
+        for index, date in np.ndenumerate(dataset.time.values):
+            data_pd = dataset.sel(time=date).to_dask_dataframe()
+            
+            # Filter the values with class data
+            data_values = data_pd[data_pd[classn]>0]
+            file_location = ds_location+classn+str(index[0])+'/'
+            
+            # Write to parquet
+            print('Writing {} parquet dataset to {} . {} of {}...'.format(classn, file_location, index[0]+1, dataset.time.values.size))
+            dask.dataframe.to_parquet(data_values, file_location)
         
 
 def calcTempTrend(dataset, band, ndate=-1, tempwindowsize=1):

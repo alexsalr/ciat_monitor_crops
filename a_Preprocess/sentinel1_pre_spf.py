@@ -49,10 +49,14 @@ def mtspeckle_sigma0 (stacked_prod, pol):
     Output:
     """
     param_specklefilter = hashp()
-    param_specklefilter.put('sourceBandNames', getBandNames(stacked_prod, "Sigma0_"+pol))
-    param_specklefilter.put('filter', 'Lee Sigma')
-    sf_product = GPF.createProduct("Multi-Temporal-Speckle-Filter", param_specklefilter, stacked_prod)
-    return sf_product
+    pol_bands = getBandNames(stacked_prod, "Sigma0_"+pol)
+    if pol_bands is None:
+        raise IndexError('No bands of {} polarization available'.format(pol))
+    else:
+        param_specklefilter.put('sourceBandNames', pol_bands)
+        param_specklefilter.put('filter', 'Lee Sigma')
+        sf_product = GPF.createProduct("Multi-Temporal-Speckle-Filter", param_specklefilter, stacked_prod)
+        return sf_product
 
 def Sigma0_todB (product):
     """

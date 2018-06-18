@@ -37,15 +37,14 @@ class eoTempStack(object):
                             'S1': set of .img files with the same extent and polarization, product from SNAP collocation Op
                             'S2': set of directories resulting from sen2cor processing Sentinel-2 level 2A product
         """
-        ## TODO assert that sourcedir finished in slash 
+        ## Set parameters as object attributes
         self.source_directory = check_dir(sourcedir)
         self.prod_type = prodtype
         self.out_directory = outdir
-        self.bands_loc = {} #Declare dictionary. Set in setBandsLoc
-        self.bands_temporal_range = {} #Declare dictionary. Set in setTempData
-        #self.orbit = None
+        self.bands_loc = {} #Declare empty dictionary. Set in setBandsLoc
+        self.bands_temporal_range = {} #Declare empty dictionary. Set in setTempData
         
-        # Set the minimum required variables to construct the object. Implementation varies by product (subclass).
+        # Set the minimum required variables to construct the object. Implementation varies by product subclass.
         self.setBandsLoc()
         self.setTempData()
         
@@ -92,7 +91,7 @@ class eoTempStack(object):
                 return id
     
     def getBandXarray(self, band, time_range):
-        """Returns an xarray object from all dates in a given band in a given timerange"""
+        """Returns an xarray.Array object from all dates in a given band in a given time_range tuple (start_date, end_date)"""
         start_date = time_range[0]
         end_date = time_range[1]
         # Get the times within the time_range
@@ -115,14 +114,14 @@ class S1TempStack(eoTempStack):
     
     def setBandsLoc(self):
         ## Get directory names of pre-processed S1 products to read
-        proddirs = list(filter(re.compile(r'^S1_'+self.orbit+'.*data$').search, os.listdir(self.source_directory)))
+        proddirs = list(filter(re.compile(r'^S1_SPF_'+self.orbit+'.*data$').search, os.listdir(self.source_directory)))
         
         ## Declare dictionary to store file location by polarizations
         prodlist = {}
         for prod_dir in proddirs:
             # List and filter img files for Sigma0 bands, store full path to file
             image_files = list(filter(re.compile(r'Sigma0.*img$').search, os.listdir(self.source_directory+prod_dir)))
-            prodlist[prod_dir.split('_')[2]] = list([self.getSourceDir()+prod_dir+'/'+x for x in image_files])
+            prodlist[prod_dir.split('_')[3]] = list([self.getSourceDir()+prod_dir+'/'+x for x in image_files])
         # Store the dictionary of files location as instance variable
         self.bands_loc = prodlist
         
@@ -462,9 +461,7 @@ class L7TempStack(opticalTempStack):
             self.bands_temporal_range = temp_range
         
 def check_dir(directory):
-    """
-    Check if directory ends in slash, if not append one
-    """
+    """ Helper method. Check if directory ends in slash, if not append one"""
     if not directory[-1] == '/':
         return directory+'/'
     else:
