@@ -4,8 +4,15 @@ Created on Wed June 15 10:10:44 2018
 
 @author: ASALAZAR
 """
-import os, re, sys, datetime, json
-from snappy import ProductIO, GPF, jpy #, HashMap, GPF, jpy
+import os
+import re
+import sys
+import datetime
+import json
+
+from snappy import ProductIO
+from snappy import GPF
+from snappy import jpy
 from snappy import HashMap as hashp
 
 ConcisePM = jpy.get_type('com.bc.ceres.core.PrintWriterConciseProgressMonitor')

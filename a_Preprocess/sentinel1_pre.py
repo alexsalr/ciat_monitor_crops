@@ -9,7 +9,13 @@ crop_monitoring_project using ESA SNAP api tools.
 """
 
 # Import packages
-import os, shutil, re, sys, subprocess, json
+import os
+import shutil
+import re
+import sys
+import subprocess
+import json
+
 from math import ceil
 
 def pre_process_s1(data_dir, out_dir, orbit, area_of_int=None, ref_raster=None, polarizations=['VV','VH'], write_int=False):
@@ -23,6 +29,7 @@ def pre_process_s1(data_dir, out_dir, orbit, area_of_int=None, ref_raster=None, 
         polarizations ([str]): strings of polarizations to consider in processing chain
     """
     print('Pre-processing Sentinel-1 images...')
+    
     # Make batches using a pair number 
     batches = make_batches(sorted(filter(re.compile(r'^S1.....GRD.*SAFE$').search, os.listdir(data_dir))), 2)
     
@@ -52,7 +59,7 @@ def pre_process_s1(data_dir, out_dir, orbit, area_of_int=None, ref_raster=None, 
     ## Stack and speckle filter
     print('Processing speckle filter of {} Sentinel-1 dates. Results will be saved in {}'.format(str(len(int_s1)), data_dir, out_dir))
     
-    spk_batches = make_batches(int_s1, 10)
+    spk_batches = make_batches(int_s1, 15)
     
     for bkey, batch in spk_batches.iteritems():
         params_dict = dict(data_dir = data_dir, out_dir=out_dir, orbit=orbit, area_of_int=area_of_int, ref_raster = ref_raster, polarizations = polarizations, write_int = write_int, bkey = bkey, batch = batch)

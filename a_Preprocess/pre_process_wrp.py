@@ -32,10 +32,10 @@ def pre_process_region(region, prods, download=False, start_date=None, end_date=
         if prod is 'S1':
             
             if download is True:
-                from sentinel_dndl import download_sentinel
+                from sentinel_download import download_sentinel
                 download_sentinel('Sentinel-1', 'GRD', 'asalazarr', 'tila8sude', start_date, end_date, region=area_of_int, down_dir=data_dir)                    
             
-            #uncompress_files(data_dir)
+            uncompress_files(data_dir)
             
             # Try again to get the reference raster
             try:
@@ -50,7 +50,7 @@ def pre_process_region(region, prods, download=False, start_date=None, end_date=
         elif prod is 'S2':
         
             if download is True:
-                from sentinel_dndl import download_sentinel
+                from sentinel_download import download_sentinel
                 download_sentinel('Sentinel-2', 'S2MSI1C', 'asalazarr', 'tila8sude', start_date, end_date, region=area_of_int, down_dir=data_dir, filename=tile)
             
             uncompress_files(data_dir)
@@ -98,12 +98,19 @@ def pre_process_s1_by_orbit(data_dir, out_dir, area_of_int=None, ref_raster=None
     
     all_products = filter(re.compile(r'^S1.....GRD.*SAFE$').search, os.listdir(data_dir))
     
-    orbits = list(map(lambda x: str(ProductIO.readProduct(data_dir+x[:-4]+'zip').getMetadataRoot().getElement('Abstracted_Metadata').getAttribute('PASS').getData()), all_products))
+    orbits = list(map(lambda x: str(ProductIO.readProduct(data_dir+x+'/manifest.safe').getMetadataRoot().getElement('Abstracted_Metadata').getAttribute('PASS').getData()), all_products))
     
     # Move the files to new directory
     for idx, product in enumerate(all_products):
         #shutil.move(data_dir+product,check_dir(data_dir+orbits[idx]+'/'))
-        shutil.move(data_dir+product[:-4]+'zip',check_dir(data_dir+orbits[idx]+'/'))
+        try:
+            shutil.move(data_dir+product[:-4]+'.zip',check_dir(data_dir+orbits[idx]+'/'))
+        except:
+            pass
+        try:
+            shutil.move(data_dir+product,check_dir(data_dir+orbits[idx]+'/'))
+        except:
+            pass
     
     # Process individually each directory
     for orbit in ['ASCENDING', 'DESCENDING']:
