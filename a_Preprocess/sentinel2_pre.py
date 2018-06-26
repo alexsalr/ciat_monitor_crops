@@ -47,6 +47,9 @@ def sen2cor_L2A_batch (res, L1Cdir):
         # Check if the file exists
         checker = r'S2._MSIL2A_' + L1C_file[11:]
         checker_list = filter(re.compile(checker).search, os.listdir(L1Cdir))
+        checker2 = r'S2._USER_PRD_MSIL2A_'+L1C_file[20:]
+        checker_list = checker_list + filter(re.compile(checker2).search, os.listdir(L1Cdir))
+        
         if len(checker_list) == 0:
             # Call sen2cor function for individual product
             print("{} is set for processing".format(L1C_file))
@@ -91,6 +94,7 @@ def pre_process_s2(data_dir, out_dir, area_of_int):
     # Filter products that have already been processed
     pre_files = filter(re.compile(r'^S2.*L2A.*data$').search, os.listdir(out_dir))
     checker = list(map(lambda x: x[0:-5] + r'.SAFE', pre_files))
+    
     prdlist = [i for i in prdlist if i not in checker]
     
     # Create a dictionary to read Sentinel-2 L2A products
