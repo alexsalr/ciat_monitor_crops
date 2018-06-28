@@ -91,7 +91,7 @@ class regionStack(object):
                                     search, os.listdir(datadir)))
             print(('Reading {} {} stack files'.format(len(files), prodtype)))
             ds = xr.open_mfdataset(list([datadir+x for x in files]),
-                  chunks={'time':1,'x':1000,'y':1000})
+                  chunks={'time':1,'x':1000,'y':1000}, parallel=True)
             return ds.sortby('time')
         except:
             print(('No stacks available for {}, orbit {}'.format(prodtype, orbit)))
@@ -265,7 +265,7 @@ class regionStack(object):
     def __readTrainingDataset(self, outdir):
         
         try:
-            cds = xr.open_mfdataset(outdir+'class.nc',chunks={'time':1})
+            cds = xr.open_mfdataset(outdir+'class.nc',chunks={'time':1}, parallel=True)
             
             print('Adding dataset with classes as class_ds attribute of regionStack')
             
