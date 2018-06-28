@@ -54,7 +54,10 @@ source deactivate
 ## use example:
 ## python ./download_espa_order.py -e alex.salazarr@gmail.com -d /mnt/workspace_cluster_6/TRANSVERSAL_PROJECTS/MADR/COMPONENTE_2/Imagenes_Satelitales/Temp/asalazar_tests/ -u asalazarr
 
-
+## Download orfeotoolbox
+mkdir otb
+cd otb
+curl -O https://www.orfeo-toolbox.org/packages/OTB-6.6.0-Linux64.run
 
 ## Create a second environment for load and analysis
 conda create --name read-explore python=2
