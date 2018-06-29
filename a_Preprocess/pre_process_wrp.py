@@ -1,17 +1,25 @@
+"""
+Python module to wrap download and pre-processing functions
+
+"""
+
 import os, re, csv, shutil, zipfile, tarfile, parmap
 from sentinel1_pre import *
 from sentinel2_pre import *
 from landsat_pre import *
 
-def pre_process_region(region, prods, download=False, start_date=None, end_date=None, tile=None, ntry=1, data_server = 'LOCAL_DATA', polarizations=['VV','VH']):
+def pre_process_region(region, prods, download=False, start_date=None, end_date=None, tile=None, ntry=1, data_server='LOCAL_DATA', polarizations=['VV','VH']):
     """
-    region (str): Huila, Casanare, Saldana, Ibague, Valledupar
-    prods ([str]): S1, S2, Landsat
-    download (boolean): If True tries to download Sentinel data for the specified time period
-    start_date (str): Date to use for data download, format YYYYmmdd. TODO support processing of dates windows
-    end_date (str): Date to use for data download, format YYYYmmdd.
-    tile (str): 
-    ntry (int): number of times to try processing Sentinel-2 data, as sometimes sen2cor fails
+    Main function to call download and pre-processing operations
+    
+    Args:
+        region (str): Huila, Casanare, Saldana, Ibague, Valledupar
+        prods ([str]): S1, S2, Landsat
+        download (boolean): If True tries to download Sentinel data for the specified time period
+        start_date (str): Date to use for data download, format YYYYmmdd. TODO support processing of dates windows
+        end_date (str): Date to use for data download, format YYYYmmdd.
+        tile (str): 
+        ntry (int): number of times to try processing Sentinel-2 data, as sometimes sen2cor fails
     """
     
     area_of_int = read_aoi(region, data_server)
@@ -23,7 +31,7 @@ def pre_process_region(region, prods, download=False, start_date=None, end_date=
         e = sys.exc_info()
         print("Reference raster for {} could not be generated: {} {} {}".format(region, e[0], e[1], e[2]))
         
-    # Read 
+    # Iterate the list of product to process
     for prod in prods:
         
         data_dir = set_data_dir(region, prod, data_server)
@@ -168,7 +176,7 @@ def read_ref_raster(region, data_server):
     """
     Checks if reference raster for region exists, if not, creates it using B1 of a Sentinel-2 L1C product.
     """
-        
+    
     # Requires snappy, currently imported in sentinel1_pre/sentinel2_pre
     loc_raster = os.environ[data_server]+'spatial_ref/'+region+'.dim'
     if os.path.isfile(loc_raster):
@@ -207,25 +215,25 @@ def read_ref_raster(region, data_server):
         return loc_raster
 
 # TODO enable pattern as parameter for uncompressing specific files
-def uncompress_files(eo_dir, unzip_dir = None):
+def uncompress_files(data_dir, unzip_dir = None):
     """
     Unzips every zipfile in the path, and stores in directory with zipfile name+.SAFE
+    
     Args:
-        eo_dir (string): string of directory where zipfiles are located
-        unzip_dir (string): directory where files are to be unzipped, default relative path
-                            uz_data in working directory
+        eo_dir (str): directory where zipfiles are located
+        unzip_dir (str): directory where files will be unzipped, default is data_dir
     """
     
     
     # List all zip files in directory
-    eo_zip_files = filter(re.compile('zip$').search, os.listdir(eo_dir))
+    eo_zip_files = filter(re.compile('zip$').search, os.listdir(data_dir))
     
     # List all tar files files in directory
-    eo_tar_files = filter(re.compile('tar.gz$').search, os.listdir(eo_dir))
+    eo_tar_files = filter(re.compile('tar.gz$').search, os.listdir(data_dir))
     
     # Check if a data folder exist
     if unzip_dir is None:
-        unzip_direc = eo_dir
+        unzip_direc = data_dir
     else:
         unzip_direc = unzip_dir
     
@@ -238,14 +246,14 @@ def uncompress_files(eo_dir, unzip_dir = None):
         unzip_direc = unzip_direc + '/'
     
     # Put parameter sets in tuples
-    eo_zip_files = list(map(lambda x: (unzip_direc, eo_dir, x), eo_zip_files))
-    eo_tar_files = list(map(lambda x: (unzip_direc, eo_dir, x), eo_tar_files))
+    eo_zip_files = list(map(lambda x: (unzip_direc, data_dir, x), eo_zip_files))
+    eo_tar_files = list(map(lambda x: (unzip_direc, data_dir, x), eo_tar_files))
     
     parmap.starmap(unzip_eo, eo_zip_files)
     parmap.starmap(untar_eo, eo_tar_files)
 
 def unzip_eo(unzip_direc, eo_dir, im_id):
-    ## Unzip only if a folder with the same name does not exist
+    ## Unzip only if a folder with the same name does not exist (for S1/S2)
     if not os.path.exists(unzip_direc+im_id[:-3]+'SAFE'):
         print('Unzipping ' + im_id)
         zip_ref = zipfile.ZipFile(eo_dir+im_id, 'r')

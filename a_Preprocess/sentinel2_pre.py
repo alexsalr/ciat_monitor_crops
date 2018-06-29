@@ -1,29 +1,35 @@
-import os, re, parmap, sys
-
 # -*- coding: utf-8 -*-
 """
-Created on Wed Mar 07 14:56:16 2018
-
 Functions with pre-processing workflow for Sentinel-1 data for CIAT
 crop_monitoring_project using ESA SNAP api tools.
 
+Created on Wed Mar 07 14:56:16 2018
+
 @author: ASALAZAR
-sen2cor functions based on:     
-Rodrigo Almeida, Maya Situnayake, Kees Baake, Mortimer Werther, Timon Weitkamp, Arnan Araza. Wageningen University
-Academic Consultancy Project for EagleSensing. Remote Sensing and GIS Integration course, Period 6, 2016-2017.
+
+sen2cor functions based on: Rodrigo Almeida, Maya Situnayake, Kees Baake, Mortimer Werther,
+Timon Weitkamp, Arnan Araza. Wageningen University. Academic Consultancy Project for Eagle-
+Sensing. Remote Sensing and GIS Integration course, Period 6, 2016-2017.
 https://github.com/rodrigoalmeida94/ACT_EagleSensing.
 """
 
-## TODO: remove hard coding of sen2cor local installation
-def sen2cor_L2A (res, prod): 
+import os
+import re
+import sys
+import parmap
+
+def sen2cor_L2A (res, prod, sen2cor_dir=os.environ["SEN2COR_BIN"]): 
     """
-    Function to call sen2cor L2A_Process for obtaining L2A products
+    Call sen2cor L2A_Process for obtaining L2A products
     
-    res (str/num): resolution, accepts 10, 20, 60, or all 
-    prod (str): location of S1 L1C product
+    Args:
+        res (str/num): resolution, accepts 10, 20, 60, or all
+        prod (str): location of S1 L1C product
+        sen2cor_dir (str): sen2cor standalone installation directory
+    
     """
-    # Hard-code location of sen2cor installation
-    os.chdir(os.environ["SEN2COR_BIN"])
+    # Change working directory
+    os.chdir(sen2cor_dir)
     # Coerce resolution to string
     res = str(res)
     # Execute L2A_Process with resolution parameter when specified
@@ -34,10 +40,11 @@ def sen2cor_L2A (res, prod):
 
 def sen2cor_L2A_batch (res, L1Cdir):
     """
-    Function to batch processing of S1-L1C files in a directory to S1-L2A
+    Batch processing of S1-L1C files in a directory to S1-L2A
     
-    res (str/num): resolution, accepts 10, 20, 60, or all
-    L1Cdir (str): location of S1 L1C products
+    Args:
+        res (str/num): resolution, accepts 10, 20, 60, or all
+        L1Cdir (str): location of S1 L1C products
     """
     # Put S1 L1C directory names in list
     L1C_files = filter(re.compile(r'^S2.*L1C.*SAFE$').search, os.listdir(L1Cdir))
@@ -64,9 +71,12 @@ def sen2cor_L2A_batch (res, L1Cdir):
 
 def pre_process_s2(data_dir, out_dir, area_of_int):
     """
+    Subsets and resamples to 10m all L2A products from in directory.
     
-    data_dir (list): list of location of directory of L2A products (.SAFE dir)
-    area_of_int (geoJSON): extent of region of interest
+    Args:
+        data_dir (str): location of L2A products (.SAFE directories)
+        out_dir (str): locaation to write processed products
+        area_of_int (geoJSON): extent of region of interest
     
     """
     import snappy
@@ -77,7 +87,6 @@ def pre_process_s2(data_dir, out_dir, area_of_int):
     GPF.getDefaultInstance().getOperatorSpiRegistry().loadOperatorSpis()
     HashMap = snappy.jpy.get_type('java.util.HashMap')
     
-    #/home/azalazar/data/
     os.chdir(data_dir)
     
     # Check location for saving results
@@ -99,14 +108,19 @@ def pre_process_s2(data_dir, out_dir, area_of_int):
     
     # Create a dictionary to read Sentinel-2 L2A products
     product = {}
+    
+    ## TODO-to merge contiguous tiles
+    ## Extract the dates of all the products with regex
+    ## Make a list of unique dates
+    ## Append list in dictionary with dates as keys with the name of the product
+    
     for element in prdlist:
         product[element[:-5]] = {}
-        #print(element)
     
+    ## TODO use only one variable for the procesing chain
     for key, value in product.iteritems():
         try:
             # Read the product
-            #print('Reading {}'.format(key+'.SAFE/MTD_MSIL2A.xml'))
             reader = filter(re.compile(r'MTD_.*xml$').search, os.listdir(data_dir+key+'.SAFE/'))
             print('Reading {}'.format(key+'.SAFE/'+reader[0]))
             value['GRD'] = ProductIO.readProduct(data_dir+key+'.SAFE/'+reader[0])
@@ -116,7 +130,7 @@ def pre_process_s2(data_dir, out_dir, area_of_int):
             resample_subset.put('targetResolution', 10)
             print('Resampling {}'.format(key))
             value['res10'] = GPF.createProduct('Resample', resample_subset, value['GRD'])
-        
+            
             # Subset to area of interest
             param_subset = HashMap()
             param_subset.put('geoRegion', area_of_int)
@@ -128,7 +142,7 @@ def pre_process_s2(data_dir, out_dir, area_of_int):
             # Write product
             print('Writing {} subset resampled to 10m'.format(key))
             ProductIO.writeProduct(value['sub'], out_dir+key, 'BEAM-DIMAP')
-        
+            
             # Dispose all the intermediate products
             value['GRD'].dispose()
             value['res10'].dispose()
