@@ -74,14 +74,17 @@ def apply_geo_correction(dataset, offset = [3.37, 1.18]):
     for band in vars_in_ds:
         try:
             print('Warping {} band to y={},x={}'.format(band, -offset[0], -offset[1]))
-            dataset[band] = xr.apply_ufunc(warp, dataset[band].compute(),
-                   input_core_dims=[['time']], output_core_dims=[['time']],
-                   kwargs={'transform':tform,'order':0,'preserve_range':True})
+            dataset[band] = xr.apply_ufunc(__warp_clip__, dataset[band].compute(),dask='parallelized',
+                   input_core_dims=[['time']], output_core_dims=[['time']],output_dtypes=dataset[band].dtype,
+                   kwargs={'inverse_map':tform,'order':0,'preserve_range':True})
         except:
             e = sys.exc_info()
             print('Warping {} band failed with error {}, {}, {}'.format(band, e[0], e[1], e[2]))
     
     return dataset
+    
+def __warp_clip__(da, **kwargs):
+    return warp(np.clip(da, a_min=0, a_max=65535), **kwargs)
 
 def calculate_offset(sentinel2_image, landsat8_image):
     """
@@ -106,10 +109,10 @@ def calculate_offset(sentinel2_image, landsat8_image):
     
     # check correction
     tform = SimilarityTransform(translation=(-shift[1],-shift[0]))
-    warped = warp(offset_image, tform)
+    warped = warp(offset_image, tform,order=0,preserve_range=False)
     corr_shift, corr_error, corr_diffphase = register_translation(image,
                                                                   warped, 100)
     
-    print("Subpixel offset after correction (y, x): {}".format(corr_shift))
+    print("Pixel offset after correction in reference image (y, x): {}".format(corr_shift))
     
     return shift

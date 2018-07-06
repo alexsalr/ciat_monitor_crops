@@ -8,14 +8,18 @@ Module for constructing a multi-temporal earth observation dataset from pre-proc
 import os
 import re
 import sys
-import rasterio, dask
+import rasterio
+import dask
+import warnings
+
 import numpy as np
 import pandas as pd
 import xarray as xr
 
+from collections import defaultdict
 from datetime import datetime as dt
 from calendar import monthrange
-
+from rasterio.merge import merge
 #from rasterio.rio import stack
 
 class eoTempStack(object):
@@ -65,6 +69,12 @@ class eoTempStack(object):
     def getSourceDir(self):
         return self.source_directory
     
+    def getOutDir(self):
+        return self.out_directory
+    
+    def getProdType(self):
+        return self.prod_type
+    
     def getBand(self, band, tempid=None, date=None):
         """Operates on all bands in object unless an tempid or date is provided.
         Returns a band or a list of bands"""
@@ -103,6 +113,103 @@ class eoTempStack(object):
         # Concatenate all dates
         da = xr.concat(arlist, dim=time)
         return da
+    
+    def mosaicBand(self, band):
+        """
+        Checks if dates are stored more than once in the temporal_data for one
+        band. If it does, read and mosaic all duplicated dates. Then update
+        band location and dates data.
+        
+        Restrictions: if any date is duplicated, only mosaiced data will remain
+        in object dictionaries.
+        
+        Args:
+            band (str): name of band (keys in object loc/temp_range dicts)
+        """
+        ls = list_indices(self.getTempData(band))
+        
+        # By default updating dictionaries is disabled
+        update_locs = False
+        
+        for date, ilist in ls.items():
+            
+            # If more than one image is on the same date
+            if len(ilist)>1:
+                # If any date is duplicated, enable updating dictionaries
+                update_locs = True
+                
+                mosaicloc = self.getSourceDir()+self.getProdType()+'_'+date.strftime('%Y%m%d')+'_'+band+'_mosaic.tif'
+                
+                tiles_loc = list(map(lambda x: self.getBandsLoc(band)[x], ilist))
+                
+                if os.path.isfile(mosaicloc):
+                    pass
+                else:
+                    try:
+                        print('Mosaicing {} band for {}'.format(band, date.strftime('%Y-%m-%d')))
+                        merge_tiles(tiles_loc, mosaicloc)
+                    except:
+                        print('{} band mosaic for {} failed, will be excluded from {} eotempstack'.format(band, date, self.prod_type))
+        
+        if update_locs:
+            self.__updateBandsMosaic__(band)
+        
+    def __updateBandsMosaic__(self, band):
+        """
+        Update mosaiced band information
+        """
+        
+        fl = os.listdir(self.getSourceDir())
+        ffilter = r'^'+self.getProdType()+'.*'+band+'.*mosaic.tif$'
+        
+        file_names = list(filter(re.compile(ffilter).search, fl))
+        
+        self.bands_loc[band] = list(map(lambda x: self.getSourceDir()+x, file_names))
+        self.bands_temporal_range[band] = list(map(lambda x: dt.strptime(x[3:11],
+                                 '%Y%m%d').date(), file_names))
+        
+        
+##Helper methods
+def merge_tiles(tilesloc, mosaicloc, **args):
+    """
+    Mosaic images using rasterio merge
+    
+    Args:
+        tilesloc([str]): list of string paths of tile files
+        mosaicloc(str): path to store mosaic image file
+        **args: arguments to pass to rasterio.merge
+    """
+    
+    # Retrieve the meta data from the first in list
+    try:
+        kwargs = rasterio.open(tilesloc[0]).meta
+        # Merge images in list
+        arr, out_trans = merge(list(map(lambda x: rasterio.open(x), tilesloc)), **args)
+    except RasterioIOError:
+        warning.warn('One or more of the images could not be read.')
+        raise
+    # Update meta data
+    kwargs.update(width=arr.shape[2],height=arr.shape[1],transform=out_trans.to_gdal(),affine=out_trans)
+    # Write mosaic file
+    with rasterio.open(mosaicloc, 'w', **kwargs) as dst:
+        for band in range(int(kwargs['count'])):
+            dst.write_band(band+1, arr[band,:,:])
+
+def list_indices(seq):
+    """
+    Make a dictionary of values of a sequence with a list of their indices in the original sequence
+    
+    Args:
+        seq (list): a list of elements
+    
+    Returns:
+        counter (defaultdic): dictionary with elements as keys and indices
+                                as values
+    """
+    counter = defaultdict(list)
+    for i,item in enumerate(seq):
+        counter[item].append(i)
+    return counter
     
 class S1TempStack(eoTempStack):
     bands_of_interest = ['VV', 'VH']
@@ -146,13 +253,15 @@ class S1TempStack(eoTempStack):
     
     def createXDataset(self):
         try:
-            # Calculate ranges of the available data. We consider monthly ranges, from first to last day of each month
+            # Get unique date values in dict
+            date_values = list(set([date for bandlist in list(self.getTempData().values()) for date in bandlist]))
             
+            # Calculate ranges of the available data. We consider monthly ranges, from first to last day of each month
             time_ranges = list([(dt.strptime('01'+x.strftime('%m%Y'), '%d%m%Y').date(),
-                            dt.strptime(str(monthrange(x.year, x.month)[1])+x.strftime('%m%Y'), '%d%m%Y').date()) for x in next(iter(self.getTempData().values()))])
+                            dt.strptime(str(monthrange(x.year, x.month)[1])+x.strftime('%m%Y'), '%d%m%Y').date()) for x in date_values])
             
             # Iterate over unique date ranges (i.e. per month)            
-            for time_range in set(list(time_ranges)):
+            for time_range in time_ranges:
                 # Extract the month in format %Y%m
                 month = time_range[0].strftime('%Y%m')
                 # Put arrays for each band in list
@@ -230,8 +339,12 @@ class opticalTempStack(eoTempStack):
     def __init__(self, sourcedir, outdir, prodtype):
         # Call eo_tempstack initialization method
         super(opticalTempStack, self).__init__(sourcedir, outdir, prodtype)
-        # Calculate indices at initialization
-        for band in self.calculated_bands: self.calcIndex(band)
+        
+        # Check if dates are duplicated, and mosaic
+        for band in self.bands_of_interest: self.mosaicBand(self.standard_band_dict[band])
+        
+        # Calculate indices at initialization TODO determine if is appropiate now
+        #for band in self.calculated_bands: self.calcIndex(band)
             
     def calcQualityPixels(self):
         """Calculates cloud cover and shade by date from original Sentinel-2 files"""
@@ -318,6 +431,10 @@ class opticalTempStack(eoTempStack):
     #    return xa
     
     def createXDataset(self):
+        """
+        Reads images from all bands in objects dictionary into xarray.DataArray objects using rasterio and concatenates all available dates
+        in fixed periods (implemented, monthly) to store as netcdf files of earth observation time series.
+        """
         try:
             # Calculate ranges of the available data. We consider monthly ranges, from first to last day of each month
             time_ranges = list([(dt.strptime('01'+x.strftime('%m%Y'), '%d%m%Y').date(),
@@ -347,7 +464,7 @@ class opticalTempStack(eoTempStack):
                 xa = xa.drop('band').drop(['qa_class', 'qa_cloud'])
                 # Write array as netcdf
                 xa.to_netcdf(self.out_directory+self.prod_type+'_'+month+'.nc')
-                
+        
         except:
             e = sys.exc_info()
             print(('Stacking {} failed: {} {} {}'.format(self.prod_type, e[0], e[1], e[2])))
@@ -368,10 +485,12 @@ class S2TempStack(opticalTempStack):
             self.bands_loc[key] = bandloc
         else:
             ## Get names of files to stack in raster
-            prodlist = list(filter(re.compile(r'^S2.*data$').search, os.listdir(self.getSourceDir())))
+            prodlist = list(filter(re.compile(r'^S2.*[MSIL2A].*data$').search, os.listdir(self.getSourceDir())))
+            
             prodloclist = {}
             for band in self.bands_of_interest:
                 prodloclist[self.standard_band_dict[band]] = list([self.getSourceDir()+x+'/'+band+'.img' for x in prodlist])
+                
             self.bands_loc = prodloclist
         
     def setTempData(self, key=None, tempdata=None):

@@ -10,7 +10,6 @@ import re
 import shutil
 import rasterio
 import dask
-import datetime
 
 import xarray as xr
 import numpy as np
@@ -18,6 +17,7 @@ import pandas as pd
 import geopandas as gpd
 import eotempstack as eots
 
+from datetime import datetime as dt
 from calendar import monthrange
 
 #from affine import Affine
@@ -29,7 +29,7 @@ class regionStack(object):
     pre-processing methods, calling the eoTempArray constructors.        
     """
     
-    def __init__(self, regname, dataserver = 'WIN_SVR_DATA'):
+    def __init__(self, regname, dataserver = 'WIN_SVR_DATA', attrs=['S1_ASCENDING','S1_DESCENDING','S1_ASCENDING_GLCM','S1_DESCENDING_GLCM','S2','LE07','LC08']):
         """
         At instantiation tries to process any available preprocessed images for
         the specified region and references all available netCDF files as dask
@@ -38,27 +38,31 @@ class regionStack(object):
         @params:
             regname (str): regions in ciat_monitor_crops project e.g. Saldana, 
                                                     Ibague, Casanare, Huila.
-            dataserver (str): as environmental variable in system. default
+            dataserver (str): directory where data is stored following pre-processing conventions
+                                default environmental variable in system. default
                                 os.environ['WIN_SVR_DATA'] @ dapadfs
+            attrs ([str]): earth observation images to set as attributes in object. defaults to all supported
+                          Supports: 'S1_ASCENDING' - Sentinel-1 ascending orbit intensity in dB units
+                                    'S1_DESCENDING' - Sentinel-1 descending orbit intensity in dB units
+                                    'S1_ASCENDING_GLCM' - GLCM texture stats for Sentinel-1 in asc orbit
+                                    'S1_DESCENDING_GLCM' - GLCM texture stats for Sentinel-1 in asc orbit
+                                    'S2' - Sentinel-2 Level-2 BOA reflectance
+                                    'LE07' - Landsat-7 Level-2
+                                    'LC08' - Landsat-8 Level-2
         
         """
         self.region_name = regname
         self.data_directory = os.environ[dataserver]+self.region_name+'/'
     
         #Loads all available products as dask arrays
-        self.S1_ASCENDING = self.__setDataset('S1',orbit='ASCENDING')
-        
-        self.S1_DESCENDING = self.__setDataset('S1',orbit='DESCENDING')
-        
-        self.S1_ASCENDING_GLCM = self.__setDataset('GLCM_S1',orbit='ASCENDING')
-        
-        self.S1_DESCENDING_GLCM = self.__setDataset('GLCM_S1',orbit='DESCENDING')
-        
-        self.S2 = self.__setDataset('S2')
-        
-        self.LE07 = self.__setDataset('LE07')
-        
-        self.LC08 = self.__setDataset('LC08')
+        #Iterate attributes to set
+        for product in attrs:
+            if product[:2] == 'S1' and product[-4:] == 'GLCM':
+                setattr(self, product, self.__setDataset(product[-4:]+'_'+product[:2],orbit=product[3:-5]))
+            elif product[:2] == 'S1':
+                setattr(self, product, self.__setDataset(product[:2] ,orbit=product[3:]))
+            else:
+                setattr(self, product, self.__setDataset(product))
     
     def __setDataset(self, prodtype, orbit=None):
         """
@@ -71,11 +75,11 @@ class regionStack(object):
             orbit (str): Sentinel-1 orbit, ASCENDING or DESCENDING
         """
         # Try to process new products, if available
-        try:
-            self.__createDataset(prodtype, orbit)
-        except:
-            print(('Creation of new {} stacks failed, reading existing stacks'
-                   .format(prodtype)))
+        #try:
+        self.__createDataset(prodtype, orbit)
+        #except:
+        #    print(('Creation of new {} stacks failed, reading existing stacks'
+        #           .format(prodtype)))
         
         # Try to read existing stacks
         try:
@@ -111,6 +115,9 @@ class regionStack(object):
         outdir = self.data_directory+'stack/'
         stackeddir = self.data_directory+prodtype+'/stacked/'
         
+        #By default, do not move files (to be moved only if create dataset succeeds
+        move=False
+        
         if not os.path.exists(outdir):
             os.makedirs(outdir)
             print(('New directory {} was created'.format(outdir)))
@@ -129,6 +136,7 @@ class regionStack(object):
             raise NotImplementedError('Chosen product type is not implemented.')
         
         # Relocate files to avoid reprocessing
+        move=True
         
         # create directory
         if not os.path.exists(stackeddir):
@@ -145,10 +153,60 @@ class regionStack(object):
             files = list(filter(re.compile(r'^'+prodtype+'.*').search,
                                 os.listdir(sourcedir)))
         # move files
-        for f in files:
-            shutil.move(sourcedir+f, stackeddir)
+        if move is True:
+            for f in files:
+                shutil.move(sourcedir+f, stackeddir)
     
+    ##########################################################################
+    ##########################################################################
+    #################### Sentinel-Landsat Harmonization ######################
+    ##########################################################################
+    ##########################################################################
     
+    def harmonize_L8(self, band='red', rewrite=False):
+        """
+        Implement harmonization with Sentinel-2
+        
+        Args:
+            s2ds (xr.DataArray): Sentinel-2 data array
+            band (str): Band to use to perform the correction
+        
+        """
+        
+        import harmonizationsl as h
+        
+        #Get the best dates (for both images)
+        best_s2_image = choose1BestQuality(getattr(self, 'S2'))[band].drop('time').drop('mask')
+        best_l8_image = choose1BestQuality(getattr(self, 'LC08'))[band].drop('time').drop('mask')
+        
+        #Merge the datasets and extract
+        merged_dataset = xr.Dataset({'s2': best_s2_image, 'l8': best_l8_image})
+        
+        offset = h.calculate_offset(merged_dataset.s2, merged_dataset.l8)
+        
+        #Apply geo correction
+        cds = h.apply_geo_correction(self.LC08, offset)
+        
+        #Apply bandpass correction
+        cds = h.apply_bandpass_correction(cds)
+        
+        setattr(self, 'LC08', cds)
+        
+        if rewrite is True:
+            self.replace_netcdf_files(cds)
+    
+    def replace_netcdf_files(self, dataset):
+        
+        time_ranges = list(map(lambda x: getMonthRange(x), dataset.time.values))
+        
+        for drange in list(set(time_ranges)):
+            
+            month = drange[0].strftime('%Y%m')
+            
+            dataset.sel(time=slice(drange[0],drange[1])).to_netcdf(self.data_directory+'LC08_'+month+'.nc')
+        
+        #raise NotImplementedError('Rewritting {} dataset not implemented'.format(dataset))
+        
     ##########################################################################
     ##########################################################################
     ####################### Training dataset building ########################
@@ -285,8 +343,8 @@ class regionStack(object):
         #dataset = getattr(self, ds_type)
         
         # Read all dates with class data
-        time = xr.Variable('time', pd.DatetimeIndex([pd.Timestamp(f) for f in
-                                                     classdates]))
+        #time = xr.Variable('time', pd.DatetimeIndex([pd.Timestamp(f) for f in
+        #                                             classdates]))
         
         # Extract the intersect dates
         #intersect_dates = np.intersect1d(time.values,
@@ -465,6 +523,22 @@ def readClassArray(outdir, dates, classtag):
     return data_array.astype(np.uint8, copy=False)#mask.astype(np.int16)
     
 
+def choose1BestQuality(opticalds):
+    """
+    Selects the date with the least clouds in an optical dataset
+    
+    Parameters:
+        opticalds (xr.Dataset): multi-temp dataset of optical rs images
+    """
+    try:
+        quality = opticalds.mask.mean(dim=['x', 'y']).compute()
+    except AttributeError:
+        print('Only optical datasets with bool pixel quality mask are supported')
+        raise
+    
+    return opticalds.isel(time=np.argmax(quality.values))
+    
+
 def chooseBestQuality(opticalds, subset_dates=None, maxcloudcover = 0.2, mintempdistance = 5):
     """
     Selects the best dates complying  in an optical dataset
@@ -572,8 +646,8 @@ def rasterizeClassdf (geopandasdf, referencefile, location, classtag = ''):
 def getMonthRange(date):
     """"""
     x = pd.to_datetime(str(date))
-    first_date = datetime.datetime.strptime('01'+x.strftime('%m%Y'), '%d%m%Y').date()
-    last_date = datetime.datetime.strptime(str(monthrange(x.year, x.month)[1])+x.strftime('%m%Y'), '%d%m%Y').date()
+    first_date = dt.strptime('01'+x.strftime('%m%Y'), '%d%m%Y').date()
+    last_date = dt.strptime(str(monthrange(x.year, x.month)[1])+x.strftime('%m%Y'), '%d%m%Y').date()
     
     return (first_date, last_date)
     

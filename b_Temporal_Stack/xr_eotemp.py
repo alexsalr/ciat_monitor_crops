@@ -49,6 +49,31 @@ class EOTempDataset(object):
             plt.savefig(filename, dpi=300)
         
         plt.show()
+    
+    def plot_raster(self, band, factor=1, writefile = False, filename='rgb.pdf', **kwargs):
+    
+        crs = ccrs.UTM('18N')
+        av_dates = self._obj.coords['time'].data.tolist()
+        
+        # Set plot dimensions
+        plt.figure(figsize=(15,3*math.ceil(len(av_dates)/5.0)))
+        
+        # Plot every date
+        for ix, date in enumerate(av_dates):
+            if factor is not 1:
+                da = self._obj.sel(time=date)[band]*factor
+            else:
+                da = self._obj.sel(time=date)[band]
+            #ap = rgb.isel(time=ix)*factor
+            ax = plt.subplot(math.ceil(len(av_dates)/5.0),5,1+ix, projection=crs)
+            #ap.plot.imshow(rgb='band', transform=crs)
+            plt.imshow(da.data, **kwargs)
+            
+        # Write plot
+        if writefile:
+            plt.savefig(filename, dpi=300)
+        
+        plt.show()
         
 #    def calcTempTrend(self, band, ndate=-1, tempwindowsize=1):
 #        """
