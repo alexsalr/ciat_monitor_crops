@@ -42,8 +42,8 @@ def apply_bandpass_correction(lc08dataset):
     # Apply bandpass adjustment
     for band, coeff in lr_harm.items():
         try:
-            print('Correcting {} band'.format(band))
-            lc08dataset[band] = coeff[0]*lc08dataset[band].compute()+coeff[1]
+            #print('Correcting {} band'.format(band))
+            lc08dataset[band] = (coeff[0]*lc08dataset[band]+coeff[1]).astype(np.uint16)
         except KeyError: #when band is not in dataset
             pass
     
@@ -55,7 +55,9 @@ def apply_geo_correction(dataset, offset = [3.37, 1.18]):
     specified 2D-offset (y,x)
     
     Please note that modifies the input dataset and that each variable in the
-    dataset is loaded to memory.
+    dataset is loaded to memory. Passes the y axis offset directy as the translation
+    to apply as they are applied in an inverted y-axis raster within the xr.apply_ufunc
+    method.
     
     Args:
         dataset (xarray.Dataset): dataset to correct
@@ -66,25 +68,38 @@ def apply_geo_correction(dataset, offset = [3.37, 1.18]):
                                     dataset.
     """
     # Correct pixel offset translation parameters (tx, ty)
-    tform = SimilarityTransform(translation=(-offset[1],-offset[0]))
+    tform = SimilarityTransform(translation=(-offset[1],offset[0])) #inverted y-axis rasters
     # Read variables names in dataset, exclusing dimensions (y,x,time)
-    vars_in_ds = [band for band in list(dataset.variables.keys()) if band not in ['time','y','x']]
+    vars_in_ds = [band for band in list(dataset.variables.keys()) if band not in ['time','y','x','mask']]
     
     # Iterate variables
     for band in vars_in_ds:
         try:
-            print('Warping {} band to y={},x={}'.format(band, -offset[0], -offset[1]))
-            dataset[band] = xr.apply_ufunc(__warp_clip__, dataset[band].compute(),dask='parallelized',
-                   input_core_dims=[['time']], output_core_dims=[['time']],output_dtypes=dataset[band].dtype,
-                   kwargs={'inverse_map':tform,'order':0,'preserve_range':True})
+            #print('Warping {} band to y={},x={}'.format(band, -offset[0], -offset[1])) #Cannot be chunked in x,y as data is lost in chunk limits
+            dataset[band] = xr.apply_ufunc(__warp_clip__, dataset[band].load(),#dask='parallelized',
+                   input_core_dims=[['time']], output_core_dims=[['time']],#output_dtypes=[dataset[band].dtype],
+                   kwargs={'inverse_map':tform,'dtype_':dataset[band].dtype,'order':0,'preserve_range':True})
         except:
             e = sys.exc_info()
             print('Warping {} band failed with error {}, {}, {}'.format(band, e[0], e[1], e[2]))
     
     return dataset
     
-def __warp_clip__(da, **kwargs):
-    return warp(np.clip(da, a_min=0, a_max=65535), **kwargs)
+def __warp_clip__(da,dtype_,**kwargs):
+    """
+    Apply skimage.transform warp to numpy ndarray.
+    Third dimension (band) is in this case the temporal dimension.
+    
+    Args:
+        da (np.ndarray): 2D or 3D array with independent
+                    rasters stacked in the 3rd dimension
+        dtype_ (np.dtype): Type to cast the resulting array
+        **kwargs: optional arguments to pass to skimage.transform.warp
+        
+    Returns:
+        da (np.ndarray): Clipped and casted to specified numpy type
+    """
+    return np.clip(warp(da, **kwargs), a_min=0, a_max=65535).astype(dtype_)
 
 def calculate_offset(sentinel2_image, landsat8_image):
     """
@@ -102,17 +117,24 @@ def calculate_offset(sentinel2_image, landsat8_image):
     image = np.nan_to_num(sentinel2_image)
     offset_image = np.nan_to_num(landsat8_image)
     
-    # subpixel precision of 100th of a pixel
-    shift, error, diffphase = register_translation(image, offset_image, 100)
+    # 1-pixel precison (sub pixel correction requires order-1+ warp with interpolation
+    shift, error, diffphase = register_translation(image, offset_image)
     
     print("Detected pixel offset (y, x): {}".format(shift))
     
     # check correction
-    tform = SimilarityTransform(translation=(-shift[1],-shift[0]))
-    warped = warp(offset_image, tform,order=0,preserve_range=False)
-    corr_shift, corr_error, corr_diffphase = register_translation(image,
-                                                                  warped, 100)
+    tform = SimilarityTransform(translation=(-shift[1],shift[0])) #inverted y-axis rasters
+    warped = xr.apply_ufunc(__warp_clip__,landsat8_image.load(),
+                   kwargs={'inverse_map':tform,
+                           'dtype_':landsat8_image.dtype,
+                           'order':0,
+                           'preserve_range':True})
     
-    print("Pixel offset after correction in reference image (y, x): {}".format(corr_shift))
+    corr_shift, corr_error, corr_diffphase = register_translation(image,
+                                                                  warped,
+                                                                  100)
+    
+    print("Sub-pixel offset after correction in reference image (y, x): {}".format(corr_shift))
     
     return shift
+    
