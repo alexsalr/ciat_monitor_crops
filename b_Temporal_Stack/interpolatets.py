@@ -25,17 +25,21 @@ def interpolate_dataset(dataset, location, bands=[], date_of_analysis=None):
     dof, times = calculate_time_periods(dds, date_of_analysis=date_of_analysis)
     print('Date of analysis is {}, interpolating:\n{}'.format(dof, times))
     
-    for band in bands:    
-        int_band = interpolate_band(dds[band].persist(), times)
+    for band in bands:
+    
+        xa_band = dds[band].persist()
         
         try: #try to apply pixel quality mask
-            int_band = int_band.where(int_band.mask)
-        except KeyError: #when mask is not available
+            xa_band = xa_band.where(xa_band.mask).persist()
+        except AttributeError: #when mask is not available
             pass
         
+        int_band = interpolate_band(xa_band, times)
+        
         # Parallelized writting not supported, need to load in memory
-        int_band.compute().to_netcdf(location+band+'.nc')
-        print('Dataset for band {} was written in {}'.format(band, location))
+        print('Writing {} band to {}'.format(band, location))
+        int_band.to_netcdf(location+band+'.nc')
+        
     
     return xr.open_mfdataset(list(map(lambda x: location+x, os.listdir(location))),
                             chunks={'ntime':1,'x':1000,'y':1000}, parallel=True)
@@ -67,7 +71,7 @@ def interpolate_band(dataarray, intdates):
     result['itime'] = ('itime', intdates)
     return result
 
-def ufunc_cubic_spline(array, axis=-1, orig_times, new_times):
+def ufunc_cubic_spline(array, orig_times, new_times, axis=-1):
     """
     Ufunc to fit a cubic spline on eo time series (y=f(x)) and interpolate
     values for the specified dates.

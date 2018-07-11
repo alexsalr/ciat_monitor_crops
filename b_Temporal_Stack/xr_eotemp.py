@@ -13,6 +13,9 @@ import datetime as dt
 import cartopy.crs as ccrs
 import matplotlib.pyplot as plt
 
+import rasterio
+import os
+
 @xr.register_dataset_accessor('eotemp')
 class EOTempDataset(object):
     
@@ -74,7 +77,150 @@ class EOTempDataset(object):
             plt.savefig(filename, dpi=300)
         
         plt.show()
+    
+    
+    def to_tiff(self, bands, filename, time, addbands=None, crs=None, transform=None):
+        """
+        Write tiff raster file with the selected variables as bands in
+        xarray dataset.
         
+        Args:
+            bands ([str]): name of dataset variables to write as bands
+            filename (str): file name to use to write the tif file
+            time (np.datetime64 or int): used to select time in eots
+            addbands ({str:xr.DataArray}): optional. If passed, all
+                              variables in dataset are added as bands
+            crs (str): e.g. +init=epsg:32618
+            transform (tuple): gdal transform (c, a, b, f, d, e)
+                e.g.(488900.0, 10.0, -0.0, 448460.0, -0.0, -10.0)
+                |c| x-coord of the upper-left corner of the upper-left pixel
+                |a| width of a pixel
+                |b| row rotation (typically zero)
+                |f| y-coord of the of the upper-left corner of the upper-left pixel
+                |d| column rotation (typically zero)
+                |e| height of a pixel (typically negative)
+        """
+        
+        if type(time) is np.datetime64:
+            temp_subset = self._obj.sel(time=time).drop(['time','mask'])[bands]
+        elif type(time) is int:
+            temp_subset = self._obj.isel(time=time).drop(['time','mask'])[bands]
+        
+        # Put bands in list
+        bandlist = [temp_subset[band] for band in bands]
+        bandnames = bands
+        
+        # Add additional bands to list
+        if addbands is not None:
+            bandlist = bandlist + list(addbands.values())
+            bandnames = bandnames + list(addbands.keys())
+        
+        # Show the array that is being written
+        for band in bandlist:
+            print(band)
+        
+        # Load data to memory
+        bandlist = [band.load() for band in bandlist]
+        
+        # Merge datasets
+        xa = xr.merge([band.rename(bandnames[idx]) for idx, band in enumerate(bandlist)])
+        
+        # Reshape dataset to DataArray
+        xa = xa.to_array(dim='bands')
+        
+        # Assign crs
+        if crs is not None:
+            xa.attrs['crs'] = crs
+        else:
+            try:
+                xa.attrs['crs'] = temp_subset.attrs['crs']
+            except KeyError:
+                raise KeyError('crs not present in Dataset, please provide as argument')
+        
+        # Assign transform
+        if transform is not None:
+            xa.attrs['transform'] = transform
+        else:
+            try:
+                xa.attrs['transform'] = temp_subset.attrs['transform']
+            except KeyError:
+                raise KeyError('transform not present in Dataset, please provide as argument')
+        
+        # Write to tif using rasterio
+        xarray_to_rasterio(xa, filename)
+
+def xarray_to_rasterio(xa, output_filename):
+    """
+    
+    Converts the given xarray.DataArray object to a raster output file
+    using rasterio.
+    
+    Args:
+        xa (xr.DataArray) DataArray to convert
+        output_filename (str): filename of output GeoTIFF file
+    
+    Notes:
+        Converts the given xarray.DataArray to a GeoTIFF output file using rasterio.
+        This function only supports 2D or 3D DataArrays, and GeoTIFF output.
+        The input DataArray must have attributes (stored as xa.attrs) specifying
+        geographic metadata, or the output will have _no_ geographic information.
+        If the DataArray uses dask as the storage backend then this function will
+        force a load of the raw data.
+        
+        Modified coordinates of np.array using the affine attribute, flipping coordinates
+        when coordinates are decreasing. Requires transposed array (y, x).
+        
+    References:
+        https://github.com/robintw/XArrayAndRasterio
+    
+    """
+    
+    # Forcibly compute the data, to ensure that all of the metadata is
+    # the same as the actual data (ie. dtypes are the same etc)
+    xa = xa.load()
+    bands = xa.bands
+    
+    if len(xa.shape) == 2:
+        count = 1
+        height = xa.shape[0]
+        width = xa.shape[1]
+        band_indicies = 1
+    else:
+        count = xa.shape[0]
+        height = xa.shape[1]
+        width = xa.shape[2]
+        band_indicies = np.arange(count) + 1
+
+    processed_attrs = {}
+    
+    # Get values to write
+    bands_to_write = xa.values
+    
+    try:
+        val = xa.attrs['transform']
+        processed_attrs['affine'] = rasterio.Affine.from_gdal(*val)
+        # Test if axes need to be inversed
+        if val[1] < 0:
+            bands_to_write = np.flip(bands_to_write, axis=2)
+        if val[5] < 0:
+            bands_to_write = np.flip(bands_to_write, axis=1)
+    except KeyError:
+        raise KeyError('transform attribute is not present in dataset')
+    try:
+        val = xa.attrs['crs']
+        processed_attrs['crs'] = rasterio.crs.CRS.from_string(val)
+    except KeyError:
+        raise KeyError('crs attribute is not present in dataset')
+    
+    with rasterio.open(output_filename, 'w',
+                       driver='GTiff',
+                       height=height, width=width,
+                       dtype=str(xa.dtype), count=count,
+                       **processed_attrs) as dst:
+        dst.write(bands_to_write, band_indicies)
+        
+
+
 #    def calcTempTrend(self, band, ndate=-1, tempwindowsize=1):
 #        """
 #        Calculates the temporal trend of a given band. Returns a xa DataArray with the calulated trend.

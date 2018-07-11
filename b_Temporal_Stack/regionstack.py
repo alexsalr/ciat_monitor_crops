@@ -7,6 +7,7 @@ Created on Wed May 23 09:31:30 2018
 
 import os
 import re
+import sys
 import shutil
 import rasterio
 import dask
@@ -29,7 +30,7 @@ class regionStack(object):
     pre-processing methods, calling the eoTempArray constructors.        
     """
     
-    def __init__(self, regname, dataserver = 'WIN_SVR_DATA', attrs=['S1_ASCENDING','S1_DESCENDING','S1_ASCENDING_GLCM','S1_DESCENDING_GLCM','S2','LE07','LC08']):
+    def __init__(self, regname, dataserver = 'WIN_SVR_DATA', attrs=['S1_ASCENDING','S1_DESCENDING','S1_ASCENDING_GLCM','S1_DESCENDING_GLCM','S2','LE07','LC08'], ignore_harm=False):
         """
         At instantiation tries to process any available preprocessed images for
         the specified region and references all available netCDF files as dask
@@ -61,6 +62,16 @@ class regionStack(object):
                 setattr(self, product, self.__setDataset(product[-4:]+'_'+product[:2],orbit=product[3:-5]))
             elif product[:2] == 'S1':
                 setattr(self, product, self.__setDataset(product[:2] ,orbit=product[3:]))
+            elif product[:4] == 'LC08':
+                if not ignore_harm:
+                    setattr(self, product, self.__setDataset('h'+product)) #try to read harmonized products, if exist
+                try:
+                    if getattr(self, product) is not None: #if harmonized dataset was loaded, notify user
+                        print('Harmonized Landsat-8 dataset was read')
+                    else:
+                        raise AttributeError('Harmonized dataset was not properly read')
+                except AttributeError: # then, read the original dataset
+                    setattr(self, product, self.__setDataset(product))
             else:
                 setattr(self, product, self.__setDataset(product))
     
@@ -86,19 +97,25 @@ class regionStack(object):
             # Default directory of stacks
             datadir = self.data_directory+'stack/'
         
-            # Lookup files to read and open xr.Dataset with dask
+            # Lookup files to read and open Dataset with dask
             if orbit is None:
                 files = list(filter(re.compile(r'^'+prodtype+'.*').search,
                                     os.listdir(datadir)))
             else:
                 files = list(filter(re.compile(r'^'+prodtype+'_'+orbit+'.*').
                                     search, os.listdir(datadir)))
-            print(('Reading {} {} stack files'.format(len(files), prodtype)))
+            print('Reading {} {} stack files'.format(len(files), prodtype))
             ds = xr.open_mfdataset(list([datadir+x for x in files]),
                   chunks={'time':1,'x':1000,'y':1000}, parallel=True)
             return ds.sortby('time')
         except:
-            print(('No stacks available for {}, orbit {}'.format(prodtype, orbit)))
+            e = sys.exc_info()
+            if orbit is not None:
+                pm = prodtype+orbit+' orbit'
+            else:
+                pm = prodtype
+            print('Reading {} stack files failed: {} {} {}'.format(pm, e[0], e[1], e[2]))
+            
             return None
     
     def __createDataset(self, prodtype, orbit=None):
@@ -132,6 +149,8 @@ class regionStack(object):
             eots.L8TempStack(sourcedir, outdir).createXDataset()
         elif prodtype == 'GLCM_S1':
             eots.S1TextureTempStack(sourcedir, outdir, orbit = orbit).createXDataset()
+        elif prodtype == 'hLC08':
+            pass
         else:
             raise NotImplementedError('Chosen product type is not implemented.')
         
@@ -170,7 +189,6 @@ class regionStack(object):
         Args:
             s2ds (xr.DataArray): Sentinel-2 data array
             band (str): Band to use to perform the correction
-        
         """
         
         import harmonizationsl as h
@@ -179,34 +197,40 @@ class regionStack(object):
         best_s2_image = choose1BestQuality(getattr(self, 'S2'))[band].drop('time').drop('mask')
         best_l8_image = choose1BestQuality(getattr(self, 'LC08'))[band].drop('time').drop('mask')
         
-        #Merge the datasets and extract
+        #Merge the datasets
         merged_dataset = xr.Dataset({'s2': best_s2_image, 'l8': best_l8_image})
         
+        #Calculate offset
         offset = h.calculate_offset(merged_dataset.s2, merged_dataset.l8)
         
-        #Apply geo correction
-        cds = h.apply_geo_correction(self.LC08, offset)
+        #Get the dataset to correct
+        lc08dataset = getattr(self, 'LC08')
         
-        #Apply bandpass correction
-        cds = h.apply_bandpass_correction(cds)
-        
-        setattr(self, 'LC08', cds)
-        
-        if rewrite is True:
-            self.replace_netcdf_files(cds)
-    
-    def replace_netcdf_files(self, dataset):
-        
-        time_ranges = list(map(lambda x: getMonthRange(x), dataset.time.values))
+        #Calculate time ranges
+        time_ranges = list(map(lambda x: getMonthRange(x), lc08dataset.time.values))
         
         for drange in list(set(time_ranges)):
             
             month = drange[0].strftime('%Y%m')
             
-            dataset.sel(time=slice(drange[0],drange[1])).to_netcdf(self.data_directory+'LC08_'+month+'.nc')
+            file_name = self.data_directory+'stack/hLC08_'+month+'.nc'
+            
+            if not os.path.isfile(file_name) or rewrite:
+                
+                print('Correcting {} dataset'.format(month))
+                                
+                #Apply bandpass correction
+                cds = h.apply_bandpass_correction(lc08dataset.sel(time=slice(drange[0],drange[1])))
+                
+                #Apply geo correction
+                cds = h.apply_geo_correction(cds, offset)
+                
+                #Write files
+                cds.chunk({'time':1}).to_netcdf(file_name)
         
-        #raise NotImplementedError('Rewritting {} dataset not implemented'.format(dataset))
-        
+        setattr(self, 'LC08', xr.open_mfdataset(list([self.data_directory+'stack/hLC08_'+x[0].strftime('%Y%m')+'.nc' for x in time_ranges]),
+                  chunks={'time':1,'x':1000,'y':1000}, parallel=True))
+    
     ##########################################################################
     ##########################################################################
     ####################### Training dataset building ########################
