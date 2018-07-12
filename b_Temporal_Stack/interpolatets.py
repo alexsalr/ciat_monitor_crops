@@ -13,36 +13,54 @@ import warnings
 
 import xarray as xr
 import numpy as np
+import pandas as pd
 
 from scipy import interpolate
 
 def interpolate_dataset(dataset, location, bands=[], date_of_analysis=None):
+    """
     
-    dds = dataset.sortby('time').chunk({'time':-1,'x':100,'y':100})#.persist()
+    Dataset must be chunked following the same: no chunks in time dimension,
     
-    #output = []
     
-    dof, times = calculate_time_periods(dds, date_of_analysis=date_of_analysis)
+    Args:
+        dataset:
+        
+    
+    """
+    dof, times = calculate_time_periods(dataset, date_of_analysis=date_of_analysis)
     print('Date of analysis is {}, interpolating:\n{}'.format(dof, times))
     
     for band in bands:
-    
-        xa_band = dds[band].persist()
+        
+        if len(dataset[band].chunks[dataset[band].dims.index('time')]) > 1:
+            #make sure DataArray is not chunked in time dimension
+            dataset[band] = dataset[band].chunk({'time':-1})
+        
+        # Subset and sort by increasing time
+        xa_band = dataset[band].sortby('time').persist()
         
         try: #try to apply pixel quality mask
             xa_band = xa_band.where(xa_band.mask).persist()
+            mask = True
         except AttributeError: #when mask is not available
+            mask = False
             pass
         
-        int_band = interpolate_band(xa_band, times)
+        #Call ufunction to interpolate
+        if mask:
+            int_band = interpolate_band(xa_band, times)
+        else:
+            int_band = interpolate_band_vect(xa_band, times)
         
-        # Parallelized writting not supported, need to load in memory
+        # Parallelized writing now supported!
         print('Writing {} band to {}'.format(band, location))
-        int_band.to_netcdf(location+band+'.nc')
-        
+        int_band.rename(band).to_netcdf(location+band+'.nc')
+        print('Done!')
     
-    return xr.open_mfdataset(list(map(lambda x: location+x, os.listdir(location))),
-                            chunks={'ntime':1,'x':1000,'y':1000}, parallel=True)
+    return xr.open_mfdataset(list(map(lambda x: location+x, os.listdir(location))))
+            #Reading fails when loading data netcdf IO Error
+            #chunks={'ntime':1,'x':1000,'y':1000}, parallel=True)
 
 def interpolate_band(dataarray, intdates):
     """
@@ -61,17 +79,43 @@ def interpolate_band(dataarray, intdates):
     # returns data array with interpolated values for int_dates
     result = xr.apply_ufunc(ufunc_cubic_spline, dataarray,
                             input_core_dims=[['time']],
-                            output_core_dims=[['itime']],
+                            output_core_dims=[['time']],
+                            exclude_dims=frozenset(['time']),
                             kwargs={'axis': -1,
                                     'orig_times': dataarray.time.values,
                                     'new_times': intdates},
                             dask='parallelized',
                             output_dtypes=[np.float32],
-                            output_sizes={'itime':intdates.shape[0]})
-    result['itime'] = ('itime', intdates)
+                            output_sizes={'time':intdates.shape[0]})
+    result['time'] = ('time', intdates)
     return result
 
-def ufunc_cubic_spline(array, orig_times, new_times, axis=-1):
+def interpolate_band_vect(dataarray, intdates):
+    """"""
+    result = xr.apply_ufunc(ufunc_cubic_spline_vect, dataarray,
+                            input_core_dims=[['time']],
+                            output_core_dims=[['time']],
+                            exclude_dims=frozenset(['time']),
+                            kwargs={'axis': -1,
+                                    'orig_times': dataarray.time.values,
+                                    'new_times': intdates},
+                            dask='parallelized',
+                            output_dtypes=[np.float32],
+                            output_sizes={'time':intdates.shape[0]})
+    result['time'] = ('time', intdates)
+    return result
+
+def ufunc_cubic_spline_vect(array, orig_times, new_times, axis):
+    
+    spl = interpolate.interp1d(orig_times,
+                               array,
+                               kind='cubic',
+                               axis=axis,
+                               assume_sorted=True)
+    
+    return spl(new_times)
+
+def ufunc_cubic_spline(array, orig_times, new_times, axis):
     """
     Ufunc to fit a cubic spline on eo time series (y=f(x)) and interpolate
     values for the specified dates.
@@ -87,12 +131,19 @@ def ufunc_cubic_spline(array, orig_times, new_times, axis=-1):
         interpolated (np.ndarray): 3-D array with interpolated values, stacked
                                     by interpolated dates in the third axis.
     """
+    # Convert datetime objects to int
+    time_base = min(pd.to_datetime(orig_times))
+    
+    int_orig_times = (pd.to_datetime(orig_times) - x_base).days.values
+    
+    int_new_times = (pd.to_datetime(new_times) - x_base).days.values
+    
     # Fit cubic spline and interpolate dates
     interpolated = np.apply_along_axis(int_cubic_spline,
                                        axis,
                                        array,
-                                       orig_times=orig_times,
-                                       new_times=new_times)
+                                       orig_times=int_orig_times,
+                                       new_times=int_new_times)
     
     return interpolated
 
@@ -112,45 +163,20 @@ def int_cubic_spline(y, orig_times, new_times):
     nans = np.isnan(y)
     
     # Try to fit cubic spline with filtered y values
-    try:
-        spl = interpolate.CubicSpline(orig_times.astype('d')[~nans], y[~nans])
+    try:     
+        spl = interpolate.CubicSpline(orig_times[~nans], y[~nans], extrapolate=False)
         
-        interpolated = spl(new_times.astype('d'))
+        interpolated = spl(new_times)
     
     except ValueError:
+        e = sys.exc_info()
+        print('{} {} {}'.format(e[0],e[1],e[2]))
         warnings.warn('CubicSpline could not be fitted for one or more pixels')
         ## When spline cannot be fitted(not enought data), return NaN
         interpolated = np.empty(new_times.shape[0])
         interpolated[:] = np.nan
         
     return interpolated
-
-# =============================================================================
-# def savitzky_golay(y, window_size, order, deriv=0, rate=1):
-#     """http://scipy-cookbook.readthedocs.io/items/SavitzkyGolay.html"""
-#     import numpy as np
-#     from math import factorial
-#     
-#     try:
-#         window_size = np.abs(np.int(window_size))
-#         order = np.abs(np.int(order))
-#     except ValueError:
-#         raise ValueError("window_size and order have to be of type int")
-#     if window_size % 2 != 1 or window_size < 1:
-#         raise TypeError("window_size size must be a positive odd number")
-#     if window_size < order + 2:
-#         raise TypeError("window_size is too small for the polynomials order")
-#     order_range = range(order+1)
-#     half_window = (window_size -1) // 2
-#     # precompute coefficients
-#     b = np.mat([[k**i for i in order_range] for k in range(-half_window, half_window+1)])
-#     m = np.linalg.pinv(b).A[deriv] * rate**deriv * factorial(deriv)
-#     # pad the signal at the extremes with values taken from the signal itself
-#     firstvals = y[0] - np.abs( y[1:half_window+1][::-1] - y[0] )
-#     lastvals = y[-1] + np.abs(y[-half_window-1:-1][::-1] - y[-1])
-#     y = np.concatenate((firstvals, y, lastvals))
-#     return np.convolve( m[::-1], y, mode='valid')
-# =============================================================================
 
 def calculate_time_periods(ds, time_delta=16, date_of_analysis=None):
     """
@@ -186,5 +212,4 @@ def calculate_time_periods(ds, time_delta=16, date_of_analysis=None):
     # Merge in a numpy array
     dates = np.array(dfi, dtype=np.datetime64)
     
-    return date_of_analysis, dates 
-
+    return date_of_analysis, dates
