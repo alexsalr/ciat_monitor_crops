@@ -48,10 +48,10 @@ def interpolate_dataset(dataset, location, bands=[], date_of_analysis=None):
             pass
         
         #Call ufunction to interpolate
-        if mask:
-            int_band = interpolate_band(xa_band, times)
-        else:
-            int_band = interpolate_band_vect(xa_band, times)
+        #if mask:
+        #    int_band = interpolate_band(xa_band, times)
+        #else:
+        int_band = interpolate_band_vect(xa_band, times)
         
         # Parallelized writing now supported!
         print('Writing {} band to {}'.format(band, location))
@@ -107,13 +107,20 @@ def interpolate_band_vect(dataarray, intdates):
 
 def ufunc_cubic_spline_vect(array, orig_times, new_times, axis):
     
-    spl = interpolate.interp1d(orig_times,
+    # Convert datetime objects to int
+    time_base = min(pd.to_datetime(orig_times))
+    
+    int_orig_times = (pd.to_datetime(orig_times) - time_base).days.values
+    
+    int_new_times = (pd.to_datetime(new_times) - time_base).days.values
+    
+    spl = interpolate.interp1d(int_orig_times,
                                array,
                                kind='cubic',
                                axis=axis,
                                assume_sorted=True)
     
-    return spl(new_times)
+    return spl(int_new_times)
 
 def ufunc_cubic_spline(array, orig_times, new_times, axis):
     """
@@ -134,9 +141,9 @@ def ufunc_cubic_spline(array, orig_times, new_times, axis):
     # Convert datetime objects to int
     time_base = min(pd.to_datetime(orig_times))
     
-    int_orig_times = (pd.to_datetime(orig_times) - x_base).days.values
+    int_orig_times = (pd.to_datetime(orig_times) - time_base).days.values
     
-    int_new_times = (pd.to_datetime(new_times) - x_base).days.values
+    int_new_times = (pd.to_datetime(new_times) - time_base).days.values
     
     # Fit cubic spline and interpolate dates
     interpolated = np.apply_along_axis(int_cubic_spline,
