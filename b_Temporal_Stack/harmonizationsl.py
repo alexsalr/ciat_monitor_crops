@@ -97,7 +97,7 @@ def __warp_clip__(da,dtype_,**kwargs):
         **kwargs: optional arguments to pass to skimage.transform.warp
         
     Returns:
-        da (np.ndarray): Clipped and casted to specified numpy type
+        da (np.ndarray): Warped image, clipped and casted to specified numpy type
     """
     return np.clip(warp(da, **kwargs), a_min=0, a_max=65535).astype(dtype_)
 
@@ -113,6 +113,8 @@ def calculate_offset(sentinel2_image, landsat8_image):
     Returns:
         shift ([float,float]): list with (y,x) subpixel offset
     """
+    
+    ## TO-DO: test if images have the same dimension
     
     image = np.nan_to_num(sentinel2_image)
     offset_image = np.nan_to_num(landsat8_image)

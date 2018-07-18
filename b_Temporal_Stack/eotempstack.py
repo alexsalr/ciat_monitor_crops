@@ -344,8 +344,8 @@ class opticalTempStack(eoTempStack):
         for band in self.bands_of_interest: self.mosaicBand(self.standard_band_dict[band])
         
         # Calculate indices at initialization TODO determine if is appropiate now
-        #for band in self.calculated_bands: self.calcIndex(band)
-            
+        for band in self.calculated_bands: self.calcIndex(band)
+        
     def calcQualityPixels(self):
         """Calculates cloud cover and shade by date from original Sentinel-2 files"""
         qualitypixels = []
