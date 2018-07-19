@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+  # -*- coding: utf-8 -*-
 """
 A python module to interpolate time series of earth observation images in
 xarray.Dataset objects.
@@ -30,7 +30,7 @@ def interpolate_dataset(dataset, location, bands=[], date_of_analysis='default',
         bands ([str]): list of string names of bands in dataset
         date_of_analysis (np.datetime64 or 'default'): date of interest
         time_delta: time between interpolated dates, in day units
-    
+        der (bool): if the derivative is beign computed
     """
     dof, times = calculate_time_periods(dataset, date_of_analysis=date_of_analysis, time_delta=time_delta)
     print('Date of analysis is {}, interpolating:\n{}'.format(dof, times))
@@ -203,8 +203,8 @@ def int_cubic_spline(y, orig_times, new_times, der):
             interpolated = spl(new_times)
     
     except ValueError:
-        e = sys.exc_info()
-        print('{} {} {}'.format(e[0],e[1],e[2]))
+        #e = sys.exc_info()
+        #print('{} {} {}'.format(e[0],e[1],e[2]))
         warnings.warn('CubicSpline could not be fitted for one or more pixels')
         ## When spline cannot be fitted(not enought data), return NaN
         interpolated = np.empty(new_times.shape[0])
@@ -249,4 +249,4 @@ def calculate_time_periods(ds, time_delta, date_of_analysis='default'):
     # Merge unique dates in a numpy array
     dates = np.array(list(set(dfi)), dtype=np.datetime64)
     
-    return date_of_analysis, dates
+    return date_of_analysis, np.sort(dates, axis=0)
