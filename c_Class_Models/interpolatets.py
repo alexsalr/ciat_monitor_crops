@@ -16,8 +16,9 @@ import numpy as np
 import pandas as pd
 
 from scipy import interpolate
+from scipy import ndimage
 
-def interpolate_dataset(dataset, location, bands=[], date_of_analysis='default', time_delta=16, der=False):
+def interpolate_dataset(dataset, location, bands=[], date_of_analysis='default', time_delta=16, der=0):
     """
     Method to interpolate earth observation time series in a dataset.
     
@@ -30,7 +31,7 @@ def interpolate_dataset(dataset, location, bands=[], date_of_analysis='default',
         bands ([str]): list of string names of bands in dataset
         date_of_analysis (np.datetime64 or 'default'): date of interest
         time_delta: time between interpolated dates, in day units
-        der (bool): if the derivative is beign computed
+        der (int): order of the derivative of spline to be computed
     """
     dof, times = calculate_time_periods(dataset, date_of_analysis=date_of_analysis, time_delta=time_delta)
     print('Date of analysis is {}, interpolating:\n{}'.format(dof, times))
@@ -55,7 +56,7 @@ def interpolate_dataset(dataset, location, bands=[], date_of_analysis='default',
             pass
         
         #Call ufunction to interpolate
-        if mask or der:
+        if mask or bool(der):
             int_band = interpolate_band(xa_band, times, der=der)
         else:
             int_band = interpolate_band_vect(xa_band, times)
@@ -63,12 +64,14 @@ def interpolate_dataset(dataset, location, bands=[], date_of_analysis='default',
         #Set output file name
         if der:
             file_name = location+band+'_der.nc'
+            var_name = band+'_'+str(der)+'der'
         else:
             file_name = location+band+'.nc'
+            var_name = band
         
         # Parallelized writing
         print('Writing {} band to {}'.format(band, file_name))
-        int_band.rename(band).to_netcdf(file_name)
+        int_band.rename(var_name).to_netcdf(file_name)
         print('Done!')
     
     #return #xr.open_mfdataset(list(map(lambda x: location+x, os.listdir(location))))
@@ -83,7 +86,7 @@ def interpolate_band(dataarray, intdates, der):
     Args:
         dataarray (xarray.DataArray): data array (time,y,x) with time series
         intdates (np.ndarray(np.datetime64)): array of dates to interpolate
-        der (bool): if the first derivative is beign calculated
+        der (int): order of derivative is beign calculated
     Returns:
         result (xarray.DataArray): data array with interpolated values stacked
                                     in new dimension itime (interpolated-time)
@@ -135,15 +138,10 @@ def interpolate_band_vect(dataarray, intdates):
 
 def ufunc_cubic_spline_vect(array, orig_times, new_times, axis):
     
-    # Convert datetime objects to int
-    #time_base = min(pd.to_datetime(orig_times))
-    
-    #int_orig_times = (pd.to_datetime(orig_times) - time_base).days.values
-    
-    #int_new_times = (pd.to_datetime(new_times) - time_base).days.values
+    filt_array = ndimage.filters.gaussian_filter1d(array, 2)
     
     spl = interpolate.interp1d(orig_times,
-                               array,
+                               filt_array,
                                kind='cubic',
                                axis=axis,
                                assume_sorted=True)
@@ -161,7 +159,7 @@ def ufunc_cubic_spline(array, orig_times, new_times, axis, der):
         axis (int): axis of the time dimension to apply the 
         orig_times: dates of the original earth observation images
         new_times: dates to interpolate
-        
+        der (int): order of derivative
     Returns:
         interpolated (np.ndarray): 3-D array with interpolated values, stacked
                                     by interpolated dates in the third axis.
@@ -192,19 +190,26 @@ def int_cubic_spline(y, orig_times, new_times, der):
     # Filter NaNs in response
     nans = np.isnan(y)
     
+    # Try to apply Gaussian filter
+    try:
+        #Apply gaussian filter    
+        y_vals = ndimage.filters.gaussian_filter(y[~nans], 2)
+        
+    except:
+        warnings.warn('filter could not be applied')
+        y_vals = y[~nans]
+    
     # Try to fit cubic spline with filtered y values
     try:     
         spl = interpolate.CubicSpline(orig_times[~nans], y[~nans], extrapolate=False)
         
         if der:
-            deriv = spl.derivative()
+            deriv = spl.derivative(der)
             interpolated = deriv(new_times)
         else:
             interpolated = spl(new_times)
     
     except ValueError:
-        #e = sys.exc_info()
-        #print('{} {} {}'.format(e[0],e[1],e[2]))
         warnings.warn('CubicSpline could not be fitted for one or more pixels')
         ## When spline cannot be fitted(not enought data), return NaN
         interpolated = np.empty(new_times.shape[0])
