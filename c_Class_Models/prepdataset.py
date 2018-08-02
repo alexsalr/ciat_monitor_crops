@@ -150,7 +150,7 @@ def create_date_dataframe(dss, fields_shp, doa, class_col_name, class_use_dict):
         polygon = shape['geometry']
         
         if not np.isnan(class_value):
-            df = get_field_dataset(dss, polygon, class_value, doa)
+            df = get_field_dataset(dss, polygon, class_value, doa, IDLote)
             
             df['IDLote'] = IDLote
             
@@ -169,7 +169,7 @@ def create_date_dataframe(dss, fields_shp, doa, class_col_name, class_use_dict):
     return data
     
 
-def get_field_dataset(datasets, polygon, class_value, doa):
+def get_field_dataset(datasets, polygon, class_value, doa, pol_id):
     """
     Open xarray Datasets and subset data using a polygon.
     
@@ -178,7 +178,7 @@ def get_field_dataset(datasets, polygon, class_value, doa):
         polygon (shapely.geometry.polygon.Polygon): field polygon
         class_value (int): field class value
         doa (np.datetime64): date of analysis
-    
+        pol_id (str): polygon ID
     Returns:
         df (dask.DataFrame): a dask dataframe of all variables in datasets
     """

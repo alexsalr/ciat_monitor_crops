@@ -18,7 +18,7 @@ import pandas as pd
 from scipy import interpolate
 from scipy import ndimage
 
-def interpolate_dataset(dataset, location, bands=[], date_of_analysis='default', time_delta=16, der=0):
+def interpolate_dataset(dataset, location, bands=[], date_of_analysis='default', time_delta=16, der=0, overwrite=False, name_app="", verbose=True):
     """
     Method to interpolate earth observation time series in a dataset.
     
@@ -29,12 +29,17 @@ def interpolate_dataset(dataset, location, bands=[], date_of_analysis='default',
         dataset (xr.Dataset): xarray Dataset with earth observation time series
         location (str): location to write interpolated dataset
         bands ([str]): list of string names of bands in dataset
-        date_of_analysis (np.datetime64 or 'default'): date of interest
+        date_of_analysis ([np.datetime64] or 'default'): list of dates of interest
         time_delta: time between interpolated dates, in day units
         der (int): order of the derivative of spline to be computed
+        overwrite (bool): if file is found on location, overwrite if True
+        name_app (str): string to append to filename
+        verbose (bool): if messages are to be printed, by default True
     """
     dof, times = calculate_time_periods(dataset, date_of_analysis=date_of_analysis, time_delta=time_delta)
-    print('Date of analysis is {}, interpolating:\n{}'.format(dof, times))
+    
+    if verbose:
+        print('Date of analysis is {}, interpolating:\n{}'.format(dof, times))
     
     for band in bands:
         
@@ -63,16 +68,21 @@ def interpolate_dataset(dataset, location, bands=[], date_of_analysis='default',
         
         #Set output file name
         if der:
-            file_name = location+band+'_der.nc'
+            file_name = location+band+'_'+str(der)+'der'+name_app+'.nc'
             var_name = band+'_'+str(der)+'der'
         else:
-            file_name = location+band+'.nc'
+            file_name = location+band+name_app+'.nc'
             var_name = band
         
         # Parallelized writing
-        print('Writing {} band to {}'.format(band, file_name))
-        int_band.rename(var_name).to_netcdf(file_name)
-        print('Done!')
+        if not os.path.isfile(file_name) or overwrite:
+            if verbose:
+                print('Writing {} band to {}'.format(band, file_name))
+            int_band.rename(var_name).to_netcdf(file_name)
+            if verbose:
+                print('Done!')
+        else:
+            warnings.warn("{} file exists. To overwrite, please indicate overwrite=True".format(file_name))
     
     #return #xr.open_mfdataset(list(map(lambda x: location+x, os.listdir(location))))
             #Reading fails when loading data netcdf IO Error
@@ -81,7 +91,7 @@ def interpolate_dataset(dataset, location, bands=[], date_of_analysis='default',
 def interpolate_band(dataarray, intdates, der):
     """
     Interpolate time series in a data array for the specified dates. Tries to
-    parallelize using dask.
+    parallelize using dask. Supports n-order derivatives.
     
     Args:
         dataarray (xarray.DataArray): data array (time,y,x) with time series
@@ -115,7 +125,16 @@ def interpolate_band(dataarray, intdates, der):
     return result
 
 def interpolate_band_vect(dataarray, intdates):
-    """"""
+    """
+    Vectorized interpolation of time series in a data array for the specified dates.
+    Tries to parallelize using dask.
+    
+    Args:
+        dataarray (xarray.DataArray): data array (time,y,x) with time series
+        intdates (np.ndarray(np.datetime64)): array of dates to interpolate
+        der (int): order of derivative is beign calculated
+    Returns:
+    """
     # Convert datetime objects to int
     time_base = min(pd.to_datetime(dataarray.time.values))
     
