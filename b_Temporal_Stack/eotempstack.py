@@ -109,7 +109,7 @@ class eoTempStack(object):
         # Use numpy to filter band locations and return in band
         band_locations = np.array(self.getBandsLoc(band))[np.array(list([start_date <= f <= end_date for f in self.getTempData(band)]))].tolist()
         # Read all bands using open_rasterio xarray method
-        arlist = [xr.open_rasterio(f) for f in band_locations]
+        arlist = [xr.open_rasterio(f, chunks={'x':5000, 'y':5000}) for f in band_locations]
         # Concatenate all dates
         da = xr.concat(arlist, dim=time)
         return da
@@ -261,7 +261,7 @@ class S1TempStack(eoTempStack):
                             dt.strptime(str(monthrange(x.year, x.month)[1])+x.strftime('%m%Y'), '%d%m%Y').date()) for x in date_values])
             
             # Iterate over unique date ranges (i.e. per month)            
-            for time_range in time_ranges:
+            for time_range in list(set(time_ranges)):
                 # Extract the month in format %Y%m
                 month = time_range[0].strftime('%Y%m')
                 # Put arrays for each band in list
@@ -278,8 +278,13 @@ class S1TempStack(eoTempStack):
                 xa = xr.merge(xarrays)
                 # Drops unused bands
                 xa = xa.drop('band')
+                # Filename
+                file_name = self.out_directory+self.prod_type+'_'+self.orbit+'_'+month+'.nc'
                 # Write array as netcdf
-                xa.to_netcdf(self.out_directory+self.prod_type+'_'+self.orbit+'_'+month+'.nc')
+                if not os.path.isfile(file_name):
+                    xa.to_netcdf(file_name)
+                else:
+                    warnings.warn('The dataset was not written. The file {} already exists.'.format(file_name))
                 
         except:
             e = sys.exc_info()
@@ -435,39 +440,53 @@ class opticalTempStack(eoTempStack):
         Reads images from all bands in objects dictionary into xarray.DataArray objects using rasterio and concatenates all available dates
         in fixed periods (implemented, monthly) to store as netcdf files of earth observation time series.
         """
-        try:
-            # Calculate ranges of the available data. We consider monthly ranges, from first to last day of each month
-            time_ranges = list([(dt.strptime('01'+x.strftime('%m%Y'), '%d%m%Y').date(),
-                            dt.strptime(str(monthrange(x.year, x.month)[1])+x.strftime('%m%Y'), '%d%m%Y').date()) for x in next(iter(self.getTempData().values()))])
-            
-            # Iterate over unique date ranges (i.e. per month)            
-            for time_range in set(list(time_ranges)):
-                # Extract the month in format %Y%m
-                month = time_range[0].strftime('%Y%m')
-                # Put arrays for each band in list
-                xarrays = []
-                # Retrieve all bands
-                for band in list(self.getBandsLoc().keys()):
-                    if self.prod_type == 'S2' and band in ['blue', 'green', 'red', 'nir', 'swir1', 'swir2']:
-                        x = self.getBandXarray(band, time_range).isel(band=0).drop('wavelength').astype(np.uint16, copy=False)
-                    elif self.prod_type in ['LE07', 'LC8'] and band in ['blue', 'green', 'red', 'nir', 'swir1', 'swir2']:
-                        x = self.getBandXarray(band, time_range).isel(band=0).astype(np.int16, copy=False)
-                    else:
-                        x = self.getBandXarray(band, time_range).isel(band=0)
-                    x.name = band
-                    xarrays.append(x)
-                # Merge all bands in a single array
-                xa = xr.merge(xarrays)
-                # Include quality pixel band
-                xa.coords['mask'] = (('time', 'y', 'x'), self.getMaskXarray(time_range))
-                # Drops unused bands
-                xa = xa.drop('band').drop(['qa_class', 'qa_cloud'])
-                # Write array as netcdf
-                xa.to_netcdf(self.out_directory+self.prod_type+'_'+month+'.nc')
+        #try:
+        # Calculate ranges of the available data. We consider monthly ranges, from first to last day of each month
+        time_ranges = list([(dt.strptime('01'+x.strftime('%m%Y'), '%d%m%Y').date(),
+                        dt.strptime(str(monthrange(x.year, x.month)[1])+x.strftime('%m%Y'), '%d%m%Y').date()) for x in next(iter(self.getTempData().values()))])
         
-        except:
-            e = sys.exc_info()
-            print(('Stacking {} failed: {} {} {}'.format(self.prod_type, e[0], e[1], e[2])))
+        # Iterate over unique date ranges (i.e. per month)            
+        for time_range in list(set(time_ranges)):
+            # Extract the month in format %Y%m
+            month = time_range[0].strftime('%Y%m')
+            # Put arrays for each band in list
+            xarrays = []
+            # Retrieve all bands
+            for band in list(self.getBandsLoc().keys()):
+                if self.prod_type == 'S2' and band in ['blue', 'green', 'red', 'nir', 'swir1', 'swir2']:
+                    x = self.getBandXarray(band, time_range).isel(band=0).astype(np.uint16, copy=False)
+                    try: # Try to remove unused dimension for Sentinel-2 .img files (fails when mosaicing)
+                        x = x.drop('wavelength')
+                    except:
+                        pass
+                elif self.prod_type in ['LE07', 'LC8'] and band in ['blue', 'green', 'red', 'nir', 'swir1', 'swir2']:
+                    x = self.getBandXarray(band, time_range).isel(band=0).astype(np.int16, copy=False)
+                else:
+                    x = self.getBandXarray(band, time_range).isel(band=0)
+                x.name = band
+                xarrays.append(x)
+            # Merge all bands in a single array
+            xa = xr.merge(xarrays)
+            # Include quality pixel band
+            xa.coords['mask'] = (('time', 'y', 'x'), self.getMaskXarray(time_range))
+            # Drops unused bands when present
+            try:
+                xa = xa.drop('band')
+            except:
+                pass
+            try:
+                xa = xa.drop(['qa_class', 'qa_cloud'])
+            except:
+                pass
+            file_name = self.out_directory+self.prod_type+'_'+month+'.nc'
+            # Write array as netcdf
+            if not os.path.isfile(file_name):
+                xa.to_netcdf(file_name)
+            else:
+                warnings.warn('The dataset was not written. The file {} already exists.'.format(file_name))
+        #except:
+        #    e = sys.exc_info()
+        #    print(('Stacking {} failed: {} {} {}'.format(self.prod_type, e[0], e[1], e[2])))
 
 class S2TempStack(opticalTempStack):
     cloud_quality_limit = {'qa_cloud':9,'qa_class':[3]}     #quality_cloud_confidence>9, quality_scene_classification == 3
