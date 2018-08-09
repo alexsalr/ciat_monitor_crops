@@ -85,7 +85,7 @@ def pre_process_region(region, prods, download=False, start_date=None, end_date=
                 # Update counter
                 trycounts += 1
                 # Process sen2cor (processes all files that do not have a L2A product)
-                sen2cor_L2A_batch('all', data_dir)
+                sen2cor_L2A_batch(10, data_dir)
                 # Check and subset
                 pre_process_s2(data_dir, out_dir, area_of_int)
             
