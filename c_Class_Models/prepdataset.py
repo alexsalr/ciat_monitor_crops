@@ -231,18 +231,21 @@ def reshape_variables(dataset, doa, var='all'):
     for variable in var:
         interm = dataset[variable]
         
-        relative_time = (pd.to_datetime(interm.time.values) - doa).days.values
+        try:
+            relative_time = (pd.to_datetime(interm.time.values) - doa).days.values
+            
+            # Add 2 lines to only keep data for dates divisible by 16
+            #interm = interm. TO-DO expose the the selected interval, to pass as parameter
+            nr = np.where(relative_time%16 == 0)
+            
+            interm = interm.isel(time=nr[0])
+            
+            interm['time'] = list(map(lambda x: variable+'_'+str(x).replace('-','n'),relative_time[nr[0]]))
+            
+            list_for_ints.append(interm.to_dataset(dim='time'))
         
-        # Add 2 lines to only keep data for dates divisible by 16
-        #interm = interm. TO-DO expose the the selected interval, to pass as parameter
-        nr = np.where(relative_time%16 == 0)
-        
-        interm = interm.isel(time=nr[0])
-        
-        interm['time'] = list(map(lambda x: variable+'_'+str(x).replace('-','n'),
-              relative_time[nr[0]]))
-        
-        list_for_ints.append(interm.to_dataset(dim='time'))
+        except AttributeError:
+            list_for_ints.append(interm)
     
     result = xr.merge(list_for_ints)
     
