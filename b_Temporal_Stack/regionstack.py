@@ -106,7 +106,7 @@ class regionStack(object):
                                     search, os.listdir(datadir)))
             print('Reading {} {} stack files'.format(len(files), prodtype))
             ds = xr.open_mfdataset(list([datadir+x for x in files]),
-                  chunks={'time':1,'x':1000,'y':1000}, parallel=True)
+                  chunks={'time':10,'x':1000,'y':1000}, parallel=True)
             return ds.sortby('time')
         except:
             e = sys.exc_info()
