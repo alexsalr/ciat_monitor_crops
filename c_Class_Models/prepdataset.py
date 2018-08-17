@@ -19,13 +19,14 @@ from shapely import geometry
 
 def prepare_dataset(inloc, outloc, date_class, shapefile, crs='epsg:32618', seed=33):
     """
+    Extract xarray dataset variables for locations in the shapefile
     
     Args:
         inloc (str): path of the location of datasets to process
         outloc (str): path of location to write resulting dataframe as parquet
         crs (str): crs corresponding to dataset coordinates, default 'epsg:32618'
         date_class ([(str, np.datetime64)]): list of tuples with the first
-                        element indicating the column name with the class
+                        element indicating the column name with the phenology obs
                         data in the shapefile and the second the corresponding
                         date. e.g ('X20151222', np.datetime64('2015-12-22'))
         shapefile (str): path of location of the shapefile with class data
@@ -63,6 +64,8 @@ def prepare_dataset(inloc, outloc, date_class, shapefile, crs='epsg:32618', seed
 
 def assign_polygons_to_class(passed_list, fields_shp, seed):
     """
+    Performs stratiefied dataset split based on number of phenology observations in the shapefile
+    
     passed_list ([(str, np.datetime64)]): list of tuples with the first
                         element indicating the column name with the class
                         data in the shapefile and the second the corresponding
