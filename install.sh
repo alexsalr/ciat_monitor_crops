@@ -62,6 +62,7 @@ source activate pheno-class
 ## most functions operate in WIN_SVR_DATa location
 echo "# Added by ciat_monitor_crops" >> ~/.bashrc 
 echo "export WIN_SVR_DATA='/mnt/workspace_cluster_6/TRANSVERSAL_PROJECTS/MADR/COMPONENTE_2/Imagenes_Satelitales/Temp/asalazar_tests/data/'" >> ~/.bashrc 
+echo "export SEN2COR_BIN='~/sen2cor/Sen2Cor-02.05.05-Linux64/bin/'" >> ~/.bashrc 
 #echo "export LOCAL_DATA='/home/%user_name%/data/'" >> ~/.bashrc 
 
 source ~/.bashrc
