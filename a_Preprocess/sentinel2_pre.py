@@ -121,9 +121,9 @@ def pre_process_s2(data_dir, out_dir, area_of_int):
     for key, value in product.iteritems():
         try:
             # Read the product
-            reader = filter(re.compile(r'MTD_.*xml$').search, os.listdir(data_dir+key+'.SAFE/'))
+            reader = filter(re.compile(r'MTD_.*xml$').search, os.listdir(os.path.join(data_dir,key+'.SAFE/')))
             print('Reading {}'.format(key+'.SAFE/'+reader[0]))
-            value['GRD'] = ProductIO.readProduct(data_dir+key+'.SAFE/'+reader[0])
+            value['GRD'] = ProductIO.readProduct(os.path.join(data_dir,key+'.SAFE',reader[0]))
         
             # Resample all bands to 10m resolution
             resample_subset = HashMap()
@@ -141,7 +141,7 @@ def pre_process_s2(data_dir, out_dir, area_of_int):
             
             # Write product
             print('Writing {} subset resampled to 10m'.format(key))
-            ProductIO.writeProduct(value['sub'], out_dir+key, 'BEAM-DIMAP')
+            ProductIO.writeProduct(value['sub'], os.path.join(out_dir,key), 'BEAM-DIMAP')
             
             # Dispose all the intermediate products
             value['GRD'].dispose()
@@ -151,7 +151,7 @@ def pre_process_s2(data_dir, out_dir, area_of_int):
         except:
             e = sys.exc_info()
             print("{} could not be processed: {} {} {}".format(key, e[0], e[1], e[2]))
-            with open(data_dir+"L2A_corrupt.txt", "a") as efile:
+            with open(os.path.join(data_dir,"S2","L2A_corrupt.txt"), "a") as efile:
                 efile.write(key+'\n')
 
             
