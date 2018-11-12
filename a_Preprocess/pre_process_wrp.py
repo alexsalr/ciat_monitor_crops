@@ -59,7 +59,7 @@ def pre_process_region(region, prods, download=False, start_date=None, end_date=
         
             if download is True:
                 from sentinel_download import download_sentinel
-                download_sentinel('Sentinel-2', 'S2MSI1C', 'asalazarr', 'tila8sude', start_date, end_date, region=area_of_int, down_dir=data_dir, filename=tile)
+                download_sentinel('Sentinel-2', 'S2MSI2A', 'asalazarr', 'tila8sude', start_date, end_date, region=area_of_int, down_dir=data_dir, filename=tile)
             
             uncompress_files(data_dir)
             
@@ -190,8 +190,8 @@ def read_ref_raster(region, data_server):
         WKTReader = snappy.jpy.get_type('com.vividsolutions.jts.io.WKTReader')
         #Construct ref_raster
         
-        # Get any s2 product available
-        prdlist = filter(re.compile(r'^S2.*L1C.*SAFE$').search, os.listdir(set_data_dir(region, 'S2', data_server)))
+        # Get any s2 product available ## CHANGED TO L2A for Europe, change back to L1C for others
+        prdlist = filter(re.compile(r'^S2.*L2A.*SAFE$').search, os.listdir(set_data_dir(region, 'S2', data_server)))
         first_product = prdlist[0]
         
         # Read reference product

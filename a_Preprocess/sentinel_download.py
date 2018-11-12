@@ -11,7 +11,7 @@ def download_sentinel(platform, prod_type, scihub_user, scihub_pass, start_date,
     # change the working directory to the location of files
     if down_dir!=None:
         os.chdir(down_dir)
-    
+    print(region)
     # connect to the API
     api = SentinelAPI(scihub_user, scihub_pass, 'https://scihub.copernicus.eu/dhus')
     
