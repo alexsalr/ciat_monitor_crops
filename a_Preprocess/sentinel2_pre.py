@@ -47,7 +47,7 @@ def sen2cor_L2A_batch (res, L1Cdir):
         L1Cdir (str): location of S1 L1C products
     """
     # Put S1 L1C directory names in list
-    L1C_files = filter(re.compile(r'^S2.*L1C.*SAFE$').search, os.listdir(L1Cdir))
+    L1C_files = list(filter(re.compile(r'^S2.*L1C.*SAFE$').search, os.listdir(L1Cdir)))
     print("{} L1C files found in directory".format(str(len(L1C_files))))
     l1cList = []
     for L1C_file in L1C_files: # Iterate over directory names
